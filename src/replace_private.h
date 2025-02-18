@@ -44,6 +44,7 @@
 #include <stdint.h>
 #include <algorithm>
 #include <climits>
+#include <limits>
 #include <iostream>
 #include <map>
 #include <string>

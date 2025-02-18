@@ -72,7 +72,7 @@ void CallDetailPlace() {
              0,
          };
 
-    sprintf(tier_dir, "%s/tiers/%d", dir_bnd, i);
+    sprintf(tier_dir, "%s/tiers/dir%d", dir_bnd, i);
     sprintf(tier_aux, "%s.aux", gbch);
     sprintf(tier_pl, "%s.pl", gbch);
 

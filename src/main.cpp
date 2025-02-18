@@ -426,7 +426,7 @@ replaceTclAppInit(Tcl_Interp *interp) {
 
 int main(int argc, char *argv[]) {
  
-  Tcl_Main(1, argv, replaceTclAppInit);
+  // Tcl_Main(1, argv, replaceTclAppInit);
 
   double tot_cpu = 0;
   double time_ip = 0;
@@ -1030,16 +1030,17 @@ void WriteBookshelfForGR() {
 }
 
 void WriteBookshelf() {
-  printf("INFO:  WRITE BOOKSHELF...");
+  printf("INFO:  WRITE BOOKSHELF...\n");
   // temporary update net->pin2 to write bookshelf
   update_pin2();
   
   char targetDir[BUF_SZ] = {0, };
-  sprintf( targetDir, "%s/tiers/0", dir_bnd);
-  cout << targetDir << endl;
+  sprintf( targetDir, "%s/tiers/dir0", dir_bnd);
+  // cout << targetDir << endl;
 
   char cmd[BUF_SZ] = {0, };
-  sprintf( cmd, "mkdir -p %s", targetDir);
+  sprintf(cmd, "mkdir -p %s", targetDir);
+  cout << cmd << endl;
   system(cmd);
 
     // call Write Bookshelf function by its tier

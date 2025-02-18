@@ -26,3 +26,7 @@ CMakeCache.txt
 CMakeFiles
 install_manifest.txt
 build
+
+# Added by cyuyang
+TTest/
+.vscode/

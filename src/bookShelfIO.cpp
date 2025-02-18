@@ -2495,7 +2495,8 @@ void WriteBookshelfWithTier(char* dir_tier, int z, bool isShapeDrawing,
   WriteNodes(dir_tier, z, pin_term_cnt, isShapeDrawing, isNameConvert);
   WritePl(dir_tier, z, isShapeDrawing, isNameConvert );
 
-  WriteRoute( dir_tier, isNameConvert, routeInst, isMetal1Removed);
+  // ! Seg fault inside
+  // WriteRoute(dir_tier, isNameConvert, routeInst, isMetal1Removed);
 
 
   // shapeSupport doesn't affect to below function
