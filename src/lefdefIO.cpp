@@ -49,6 +49,7 @@
 #include "replace_private.h"
 #include "lefdefIO.h"
 #include "bookShelfIO.h"
+#include "cadb23IO.h"
 
 #include "timing.h"
 #include "timingSta.h"
@@ -285,6 +286,13 @@ void ParseInput() {
   else if(auxCMD != "" && lefStor.size() == 0 && defName == "") {
     inputMode = InputMode::bookshelf;
     ParseBookShelf();
+  }
+  else if ( auxCMD == "" && lefStor.size() == 0 && defName == "" && cadbinName != "") {
+    inputMode = InputMode::cadb23;
+    cadb23_io::ParseCADB23_I(cadbinName);
+    if ( cadboutName != "" ) {
+      cadb23_io::ParseCADB23_O(cadboutName);
+    }
   }
 
   if(verilogName != "") {

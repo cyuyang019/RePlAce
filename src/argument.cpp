@@ -72,6 +72,8 @@ void initGlobalVars() {
 
   auxCMD = "";
   defName = "";
+  cadbinName = "";
+  cadboutName = "";
   sdcName = "";
   verilogName = "";
   outputCMD = "";
@@ -291,6 +293,26 @@ bool argument(int argc, char *argv[]) {
       }
       else {
         printf("\n**ERROR: Option %s requires *.def.\n", argv[i - 1]);
+        return false;
+      }
+    }
+    else if ( !strcmp(argv[i], "-cadb23in") ) {
+      i++;
+      if ( argv[i][0] != '-' ) {
+        cadbinName = argv[i];
+      }
+      else {
+        printf("\n**ERROR: Option %s requires *.cadbin.\n", argv[i - 1]);
+        return false;
+      }
+    }
+    else if ( !strcmp(argv[i], "-cadb23out") ) {
+      i++;
+      if ( argv[i][0] != '-' ) {
+        cadboutName = argv[i];
+      }
+      else {
+        printf("\n**ERROR: Option %s requires *.cadbout.\n", argv[i - 1]);
         return false;
       }
     }
@@ -1056,7 +1078,7 @@ void printUsage() {
 
 bool criticalArgumentError() {
   // mgwoo
-  if(auxCMD == "" && lefStor.size() == 0 && defName == "") {
+  if(auxCMD == "" && lefStor.size() == 0 && defName == "" && cadbinName == "") {
     printf(
         "\n** ERROR: lef/def pair or aux files are needed, use (-lef/-def) or "
         "(-aux) options.\n");
@@ -1065,7 +1087,7 @@ bool criticalArgumentError() {
   }
 
   // mgwoo
-  if(auxCMD == "" && !(lefStor.size() != 0 && defName != "")) {
+  if(auxCMD == "" && cadbinName == "" && !(lefStor.size() != 0 && defName != "")) {
     printf("\n** ERROR: Both of lef/def files are needed.\n");
     printUsage();
     return true;

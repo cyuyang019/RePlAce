@@ -317,6 +317,8 @@ vector< string > libStor;  // mgwoo
 string outputCMD;          // mgwoo
 string experimentCMD;      // mgwoo
 vector< string > lefStor;  // mgwoo
+string cadbinName;
+string cadboutName;
 string verilogTopModule;
 int defMacroCnt;
 int numInitPlaceIter;

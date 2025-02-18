@@ -809,6 +809,8 @@ extern FPOS grow_pmax;
 extern std::string bmFlagCMD;
 extern std::string auxCMD;
 extern std::string defName;
+extern std::string cadbinName;
+extern std::string cadboutName;
 extern std::string verilogName;
 extern std::string sdcName;
 extern std::vector< std::string > lefStor;
@@ -822,7 +824,7 @@ extern int numInitPlaceIter;
 extern std::string benchName;
 
 extern int numThread;
-enum class InputMode { bookshelf, lefdef };
+enum class InputMode { bookshelf, lefdef, cadb23 };
 extern InputMode inputMode;
 
 extern std::string racntiCMD;    // lutong
