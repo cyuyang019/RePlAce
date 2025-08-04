@@ -1,38 +1,48 @@
-FROM centos:centos6 AS builder
+FROM ubuntu:22.04
 
-# install gcc 6
-RUN yum -y install centos-release-scl && \
-    yum -y install devtoolset-6 devtoolset-6-libatomic-devel
-ENV CC=/opt/rh/devtoolset-6/root/usr/bin/gcc \
-    CPP=/opt/rh/devtoolset-6/root/usr/bin/cpp \
-    CXX=/opt/rh/devtoolset-6/root/usr/bin/g++ \
-    PATH=/opt/rh/devtoolset-6/root/usr/bin:$PATH \
-    LD_LIBRARY_PATH=/opt/rh/devtoolset-6/root/usr/lib64:/opt/rh/devtoolset-6/root/usr/lib:/opt/rh/devtoolset-6/root/usr/lib64/dyninst:/opt/rh/devtoolset-6/root/usr/lib/dyninst:/opt/rh/devtoolset-6/root/usr/lib64:/opt/rh/devtoolset-6/root/usr/lib:$LD_LIBRARY_PATH
+ENV DEBIAN_FRONTEND=noninteractive
 
-# install dependencies
-RUN yum install -y wget libstdc++-devel libstdc++-static libX11-devel \
-    boost-devel zlib-devel tcl-devel tk-devel swig flex \
-    gmp-devel mpfr-devel libmpc-devel bison \
-    ImageMagick ImageMagick-devel git glibc-static zlib-static libjpeg-turbo-static
+# Install system packages
+RUN apt-get update && \
+    apt-get -y upgrade && \
+    apt-get -y install \
+    curl \
+    git \
+    vim \
+    zsh \
+    ca-certificates \
+    cmake \
+    swig \
+    flex \
+    bison \
+    libtool \
+    zlib1g-dev \
+    libx11-dev \
+    libboost-dev \
+    tcl-dev \
+    tk-dev \
+    libjpeg-dev \
+    python3 \
+    python3-pip \
+    && apt-get -y autoremove && \
+    apt-get clean
 
-# Installing cmake for build dependency
-RUN wget https://cmake.org/files/v3.9/cmake-3.9.0-Linux-x86_64.sh && \
-    chmod +x cmake-3.9.0-Linux-x86_64.sh  && \
-    ./cmake-3.9.0-Linux-x86_64.sh --skip-license --prefix=/usr/local
+# Set Zsh as default shell for root
+RUN chsh -s /bin/zsh root
 
-COPY . /RePlAce
-RUN mkdir -p /RePlAce/build
-WORKDIR /RePlAce/build
-RUN cmake -DCMAKE_INSTALL_PREFIX=/build ..
-RUN make
+# Install Oh My Zsh for root
+RUN curl -Lo /tmp/install.sh https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh && \
+    RUNZSH=no CHSH=no KEEP_ZSHRC=yes bash /tmp/install.sh && \
+    rm /tmp/install.sh
 
-FROM centos:centos6 AS runner
-RUN yum update -y && yum install -y tcl-devel libSM libX11-devel libXext libjpeg libgomp
-COPY --from=builder /RePlAce/build/replace /build/replace
-COPY --from=builder /RePlAce/module/OpenSTA/app/sta /build/sta
-COPY --from=builder /RePlAce/test/PORT9.dat /build/share/PORT9.dat
-COPY --from=builder /RePlAce/test/POST9.dat /build/share/POST9.dat
-COPY --from=builder /RePlAce/test/POWV9.dat /build/share/POWV9.dat
-RUN useradd -ms /bin/bash openroad
-USER openroad
-WORKDIR /home/openroad
+# Set clean theme in .zshrc
+RUN sed -i 's/^ZSH_THEME=.*/ZSH_THEME="maran"/' /root/.zshrc
+
+# Make python command point to python3
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3 1
+
+# Set default working directory to mount point
+WORKDIR /mnt/RePlAce
+
+# Launch Zsh by default
+CMD ["zsh"]

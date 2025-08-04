@@ -64,14 +64,17 @@ prec opt_w_cof;  // lutong
 prec opt_phi_cof_local;
 prec opt_wlen_cof;
 prec gsum_area;
+prec timing_phi_cof;
 
 prec avg80p_cell_area;
+prec *avg80p_cell_area_3D;
 prec ref_dwl0;
 prec LOWER_PCOF, UPPER_PCOF;
 prec INIT_LAMBDA_COF_GP;
 prec MIN_PRE;
 
 FPOS avg80p_cell_dim;
+FPOS *avg80p_cell_dim_3D;
 
 // should be removed!!! 3D code!!!
 //
@@ -98,9 +101,9 @@ void setup_before_opt(void) {
   msh_init();
   //    bin_init();
 
-  charge_fft_init(msh, bin_stp, 1);
+  // charge_fft_init(msh, bin_stp, 1);
 //  update_cell_den();
-  wcof_init(bin_stp);
+  // wcof_init(bin_stp);
 }
 
 int setup_before_opt_mGP2D(void) {
@@ -142,6 +145,31 @@ int setup_before_opt_cGP2D(void) {
   UpdateGcellCoordiFromModule();
   net_update_init();
   return 1;
+}
+
+void setup_before_opt_3DIC(void) {
+
+  whitespace_init_3DIC();
+
+  cell_init_3DIC();
+  cell_filler_init_3DIC();
+
+  msh_init();
+  
+  PrintProcBegin("Tier Initialization");
+  tier_init_3DIC();
+  PrintProcEnd("Tier Initialization");
+  
+  PrintProcBegin("Bin Initialization");
+  bin_init_3DIC();
+  charge_fft_init(dim_bin_3DIC, bin_stp_3DIC, 0);
+  
+  wcof_init(bin_stp_3DIC);
+  wlen_init();
+  update_cell_density();
+  PrintProcEnd("Bin Initialization");
+
+  INIT_LAMBDA_COF_GP = 0.5;
 }
 
 int post_mGP2D_delete(void) {
@@ -204,8 +232,9 @@ void whitespace_init(void) {
 
   TIER *tier = &tier_st[0];
 
-  // for each Terminal Instance
-  for(int i = 0; i < terminalCNT; i++) {
+  // for each Terminal Instance, not considered in 3D IC ECO
+  /*
+  for ( int i = 0; i < terminalCNT; i++ ) {
     TERM *curTerminal = &terminalInstance[i];
     curTerminal->PL_area = 0;
 
@@ -255,14 +284,15 @@ void whitespace_init(void) {
         }
       }
     }
-    /*
+    
      for(int j = 0; j < place_st_cnt; j++) {
          PLACE* pl = &place_st[j];
          FPOS len = get_int_rgn(term->pmin, term->pmax, pl->org, pl->end);
          term->PL_area += fp_product(len);
      }
-     total_termPL_area += term->PL_area;*/
+     total_termPL_area += term->PL_area;
   }
+  */
 
   total_WS_area = total_PL_area - total_termPL_area;
   total_std_den = total_std_area / (total_WS_area - total_macro_area);
@@ -290,6 +320,31 @@ void whitespace_init(void) {
 //         total_macro_area / total_WS_area * 100.0);
 //  printf("INFO:  Total_StdCell_Area = %lf, %lf of WS\n", total_std_area,
 //         total_std_area / total_WS_area * 100.0);
+}
+
+void whitespace_init_3DIC(void) {
+  total_termPL_area = 0;
+  total_WS_area = total_PL_area;
+
+  delete[] total_std_den_3D;
+  total_std_den_3D = new prec[numLayer];
+
+  for ( int i = 0; i < numLayer; ++i ) {
+    TIER *tier = &tier_st[i];
+    
+    total_std_den_3D[i] = total_std_area_3D[i] / total_WS_area;
+
+    printf("[INFO] Layer %d:\n", i);
+    PrintInfoPrec("TotalPlaceArea", total_PL_area);
+    PrintInfoPrec("TotalWhiteSpaceArea", total_WS_area);
+    PrintInfoPrec("TotalPlaceStdCellsArea", total_std_area_3D[i]);
+    PrintInfoPrec("Util(%)", total_std_area_3D[i] / total_PL_area * 100);
+    
+    if ( total_std_den_3D[i] > 1.00f ) {
+      PrintError("Utilization Exceeds 100%. Please double-check your input DEF");
+    }
+
+  }
 }
 
 void FillerCellRandPlace() {
@@ -325,6 +380,45 @@ void FillerCellRandPlace() {
     // updates pmin and pmax based on center
     filler->pmin = fp_subt(filler->center, fp_scal(0.5, filler->size));
     filler->pmax = fp_add(filler->center, fp_scal(0.5, filler->size));
+  }
+}
+
+void FillerCellRandPlace_3DIC() {
+  struct FPOS pmin, pmax;
+  struct FPOS rnd;
+  struct TIER *tier;
+
+  // filler_cell ranges
+  for ( int l = 0; l < numLayer; ++l ) {
+    tier = &tier_st[l];
+    
+    for ( int i = tier->modu_cnt; i < tier->cell_cnt; i++ ) {
+      struct CELL *filler = tier->cell_st[i];
+      
+      pmin = fp_add(tier->pmin, fp_scal(0.5, filler->size));
+      pmax = fp_subt(tier->pmax, fp_scal(0.5, filler->size));
+      
+      // rnd will give rand() vals.
+      rnd = fp_rand();
+      
+      // 
+      // pmin : possible minimum center point ranges inside layout.
+      // pmax : possible maximum center point ranges inside layout.
+      //
+      // inv_RAND_MAX * rnd will give FPOS pairs, 
+      // ranged on 0~1 float numbers.
+      //
+      // pmax - pmin : possible center point ranges' length.
+      // 
+      
+      // Filler cells are randomly placed..!
+
+      filler->center = fp_add(fp_mul(fp_scal(inv_RAND_MAX, rnd), fp_subt(pmax, pmin)), pmin);
+      
+      // updates pmin and pmax based on center
+      filler->pmin = fp_subt(filler->center, fp_scal(0.5, filler->size));
+      filler->pmax = fp_add(filler->center, fp_scal(0.5, filler->size));
+    }
   }
 }
 
@@ -416,6 +510,122 @@ void cell_filler_init() {
     filler->pmin = fp_add(filler->center, fp_scal(-0.5, filler->size));
     filler->pmax = fp_add(filler->center, fp_scal(0.5, filler->size));
   }
+}
+
+void cell_filler_init_3DIC() {
+  // Container initialization
+  delete[] total_filler_area_3D;
+  delete[] filler_area_3D;
+  delete[] filler_size_3D;
+  delete[] gfiller_cnt_3D;
+  delete[] total_cell_area_3D;
+  total_filler_area_3D = new prec[numLayer];
+  filler_area_3D = new prec[numLayer];
+  filler_size_3D = new FPOS[numLayer];
+  gfiller_cnt_3D = new int[numLayer];
+  total_cell_area_3D = new prec[numLayer];
+
+  int i = 0;
+  struct CELL *filler = NULL;
+  prec k_f2c = 1.0;
+  struct CELL *gcell_st_tmp = NULL;
+  struct FPOS org, end, len, rnd;
+  struct FPOS f_size;
+
+
+  total_move_available_area = total_WS_area * target_cell_den;
+  gfiller_cnt = 0;
+
+  for ( int l = 0; l < numLayer; ++l ) {
+    
+    f_size.x = avg80p_cell_dim_3D[l].x;
+    f_size.y = avg80p_cell_dim_3D[l].y;
+    
+    prec f_area = f_size.x * f_size.y;
+    
+    total_filler_area_3D[l] = total_move_available_area - total_modu_area_3D[l];
+    
+    if ( total_filler_area_3D[l] < 0 ) {
+      if ( fabs(total_filler_area_3D[l]) < total_move_available_area * 0.0001 ) {
+        total_filler_area_3D[l] = 0.0f;
+      }
+      else {
+        cout << "ERROR: Negative filler area on layer " << l << " has been detected: " << total_filler_area_3D[l] << endl;
+        exit(1);
+      }
+    }
+    
+    filler_area_3D[l] = f_area;
+    filler_size_3D[l] = f_size;
+    
+    gfiller_cnt_3D[l] = ( int ) ( total_filler_area_3D[l] / filler_area_3D[l] + 0.5 );
+    gfiller_cnt += gfiller_cnt_3D[l];
+
+    printf("[INFO] Layer %d:\n", l);
+    PrintInfoPrec("FillerInit: TotalFillerArea", total_filler_area_3D[l]);
+    PrintInfoInt("FillerInit: NumFillerCells", gfiller_cnt_3D[l]);
+    PrintInfoPrec("FillerInit: FillerCellArea", filler_area_3D[l]);
+    PrintInfoPrecPair("FillerInit: FillerCellSize", filler_size_3D[l].x, filler_size_3D[l].y);
+  }
+
+  gcell_cnt = moduleCNT + gfiller_cnt;
+
+  // igkang:  replace realloc to mkl
+  gcell_st_tmp = ( struct CELL * ) malloc(sizeof(struct CELL) * gcell_cnt);
+  memcpy(gcell_st_tmp, gcell_st, moduleCNT * ( sizeof(struct CELL) ));
+  free(gcell_st);
+
+  gcell_st = ( CELL * ) malloc(sizeof(struct CELL) * gcell_cnt);
+  memcpy(gcell_st, gcell_st_tmp, gcell_cnt * ( sizeof(struct CELL) ));
+  free(gcell_st_tmp);
+
+  PrintInfoInt("FillerInit: NumCells", gcell_cnt);
+  PrintInfoInt("FillerInit: NumModules", moduleCNT);
+  PrintInfoInt("FillerInit: NumFillers", gfiller_cnt);
+
+  int filler_idx = moduleCNT;
+
+  for ( int l = 0; l < numLayer; ++l ) {
+    for ( i = 0; i < gfiller_cnt_3D[l]; ++i ) {
+
+      filler = &gcell_st[filler_idx];
+      filler->flg = FillerCell;
+      filler->idx = filler_idx - moduleCNT;
+
+      filler->tier = l;
+
+      //    sprintf(filler->Name, "f%d", filler->idx);
+      cellNameStor.push_back("f" + to_string(filler->idx));
+
+      filler->size = filler_size_3D[l];
+      filler->half_size.x = 0.5 * filler->size.x;
+      filler->half_size.y = 0.5 * filler->size.y;
+
+      filler->area = filler_area_3D[l];
+      filler->pinCNTinObject = 0;
+      filler->netCNTinObject = 0;
+      filler->pof = nullptr;
+      filler->pin = nullptr;
+
+      org = fp_add(place.org, fp_scal(0.5, filler->size));
+      end = fp_add(place.end, fp_scal(-0.5, filler->size));
+
+      len = fp_subt(end, org);
+
+      rnd = fp_rand();
+
+      filler->center = fp_add(fp_mul(fp_scal(inv_RAND_MAX, rnd), len), org);
+
+      filler->pmin = fp_add(filler->center, fp_scal(-0.5, filler->size));
+      filler->pmax = fp_add(filler->center, fp_scal(0.5, filler->size));
+
+      ++filler_idx;
+    }
+
+    total_cell_area_3D[l] = total_modu_area_3D[l] + total_filler_area_3D[l];
+
+  }
+
 }
 
 void cell_init(void) {
@@ -545,6 +755,190 @@ void cell_init(void) {
            cell->pinCNTinObject * (sizeof(struct PIN *)));
     memcpy(cell->pof, cell->pof_tmp,
            cell->pinCNTinObject * (sizeof(struct FPOS)));
+    free(cell->pin_tmp);
+    free(cell->pof_tmp);
+
+    cell->pmin = mdp->pmin;
+    cell->pmax = mdp->pmax;
+    cell->center = mdp->center;
+  }
+}
+
+void cell_init_3DIC(void) {
+  // Container initialization
+  delete[] total_modu_area_3D;
+  delete[] inv_total_modu_area_3D;
+  delete[] avg80p_cell_area_3D;
+  delete[] avg80p_cell_dim_3D;
+  total_modu_area_3D = new prec[numLayer];
+  inv_total_modu_area_3D = new prec[numLayer];
+  avg80p_cell_area_3D = new prec[numLayer];
+  avg80p_cell_dim_3D = new FPOS[numLayer];
+
+  for ( int i = 0; i < numLayer; ++i ) {
+    total_modu_area_3D[i] = total_std_area_3D[i];
+    inv_total_modu_area_3D[i] = 1.00 / total_modu_area_3D[i];
+  }
+
+  int i = 0, j = 0, k = 0;
+  int *min_idx = new int[numLayer];
+  int *max_idx = new int[numLayer];
+  for ( int l = 0; l < numLayer; ++l ) {
+    min_idx[l] = ( int ) ( 0.1 * ( prec ) moduleCNT_3D[l] );
+    max_idx[l] = ( int ) ( 0.9 * ( prec ) moduleCNT_3D[l] );
+  }
+
+  struct CELL *cell = nullptr;
+  struct MODULE *mdp = nullptr;
+  struct FPOS pof;
+  struct PIN *pin = nullptr;
+  struct NET *net = nullptr;
+
+  prec *cell_area_st;
+  prec *cell_x_st;
+  prec *cell_y_st;
+
+  for ( int l = 0; l < numLayer; l += 2 ) {
+    prec total_area = 0, avg_cell_area = 0;
+    prec total_x = 0, total_y = 0;
+
+    cell_area_st = new prec[moduleCNT_3D[l]];
+    cell_x_st = new prec[moduleCNT_3D[l]];
+    cell_y_st = new prec[moduleCNT_3D[l]];
+
+    int idx = 0;
+    for ( i = 0; i < moduleCNT; i++ ) {
+      mdp = &moduleInstance[i];
+      if (mdp->tier != l) {
+        continue;
+      }
+      cell_area_st[idx] = mdp->area;
+      cell_x_st[idx] = mdp->size.x;
+      cell_y_st[idx] = mdp->size.y;
+      ++idx;
+    }
+
+    qsort(cell_area_st, moduleCNT_3D[l], sizeof(prec), area_sort);
+    qsort(cell_x_st, moduleCNT_3D[l], sizeof(prec), area_sort);
+    qsort(cell_y_st, moduleCNT_3D[l], sizeof(prec), area_sort);
+
+    for ( i = min_idx[l]; i < max_idx[l]; i++ ) {
+      total_area += cell_area_st[i];
+      total_x += cell_x_st[i];
+      total_y += cell_y_st[i];
+    }
+
+    delete[] cell_area_st;
+    delete[] cell_x_st;
+    delete[] cell_y_st;
+
+    avg80p_cell_area_3D[l] = total_area / ( ( prec ) ( max_idx[l] - min_idx[l] ) );
+    avg80p_cell_dim_3D[l].x = total_x / ( ( prec ) ( max_idx[l] - min_idx[l] ) );
+    avg80p_cell_dim_3D[l].y = total_y / ( ( prec ) ( max_idx[l] - min_idx[l] ) );
+
+    // printf("[INFO] 80pCellArea for layer %d = %lf\n", l, avg80p_cell_area_3D[l]);
+    // printf("[INFO] 80pCellDim for layer %d = %lf, %lf\n", l, avg80p_cell_dim_3D[l].x, avg80p_cell_dim_3D[l].y);
+  }
+
+  // Filler size for HBT
+  avg80p_cell_area_3D[1] = ( prec ) cadb23::HBT_Width * cadb23::HBT_Height;
+  avg80p_cell_dim_3D[1].x = cadb23::HBT_Width;
+  avg80p_cell_dim_3D[1].y = cadb23::HBT_Height;
+
+  // printf("[INFO] 80pCellArea for layer 1 = %lf\n", avg80p_cell_area_3D[1]);
+  // printf("[INFO] 80pCellDim for layer 1 = %lf, %lf\n", avg80p_cell_dim_3D[1].x, avg80p_cell_dim_3D[1].y);
+
+
+  gcell_cnt = moduleCNT;
+  gcell_st = ( struct CELL * ) malloc(sizeof(struct CELL) * gcell_cnt);
+
+  // pin2 copy loop: pin2 is original pin info
+  for ( i = 0; i < netCNT; i++ ) {
+    net = &netInstance[i];
+    net->mod_idx = -1;
+    net->pin2 = ( struct PIN ** ) malloc(
+      sizeof(struct PIN *) * net->pinCNTinObject);
+    net->pinCNTinObject2 = net->pinCNTinObject;
+    for ( j = 0; j < net->pinCNTinObject2; j++ ) {
+      net->pin2[j] = net->pin[j];
+    }
+  }
+
+  cellNameStor.clear();
+
+  for ( i = 0; i < gcell_cnt; i++ ) {
+    mdp = &moduleInstance[i];
+    cell = &gcell_st[i];
+
+    cell->tier = mdp->tier;
+    cell->flg = mdp->flg;
+    cell->idx = i;
+    //    strcpy(cell->Name, mdp->name);
+    cellNameStor.push_back(mdp->Name());
+    cell->size = mdp->size;
+    cell->half_size = mdp->half_size;
+    cell->area = mdp->area;
+    cell->pof = ( struct FPOS * ) malloc(
+      sizeof(struct FPOS) * mdp->pinCNTinObject);
+    cell->pin = ( struct PIN ** ) malloc(
+      sizeof(struct PIN *) * mdp->pinCNTinObject);
+    cell->pinCNTinObject = 0;
+
+    // 
+    // pin removal is executed 
+    // when there are two duplicated pins 
+    // (connected to a same net) in a single instance 
+    //
+    // for ( j = 0; j < mdp->pinCNTinObject; j++ ) {
+    //   pin = mdp->pin[j];
+    //   pof = mdp->pof[j];
+    //   net = &netInstance[pin->netID];
+
+    //   if ( net->mod_idx == i ) {
+    //     for ( k = pin->pinIDinNet; k < net->pinCNTinObject - 1; k++ ) {
+    //       net->pin[k] = net->pin[k + 1];
+    //       net->pin[k]->pinIDinNet = k;
+    //     }
+    //     net->pinCNTinObject--;
+    //     continue;
+    //   }
+    //   else {
+    //     net->mod_idx = i;
+    //     cell->pin[cell->pinCNTinObject] = pin;
+    //     cell->pof[cell->pinCNTinObject] = pof;
+    //     cell->pinCNTinObject++;
+    //   }
+    // }
+
+    for ( j = 0; j < mdp->pinCNTinObject; j++ ) {
+      pin = mdp->pin[j];
+      pof = mdp->pof[j];
+      net = &netInstance[pin->netID];
+      net->mod_idx = i;
+      cell->pin[cell->pinCNTinObject] = pin;
+      cell->pof[cell->pinCNTinObject] = pof;
+      cell->pinCNTinObject++;
+    }
+
+    cell->netCNTinObject = cell->pinCNTinObject;
+    cell->pin_tmp = ( struct PIN ** ) malloc(
+      sizeof(struct PIN *) * cell->pinCNTinObject);
+    cell->pof_tmp = ( struct FPOS * ) malloc(
+      sizeof(struct FPOS) * cell->pinCNTinObject);
+    memcpy(cell->pin_tmp, cell->pin,
+      cell->pinCNTinObject * ( sizeof(struct PIN *) ));
+    memcpy(cell->pof_tmp, cell->pof,
+      cell->pinCNTinObject * ( sizeof(struct FPOS) ));
+    free(cell->pin);
+    free(cell->pof);
+    cell->pin = ( struct PIN ** ) malloc(
+      sizeof(struct PIN *) * cell->pinCNTinObject);
+    cell->pof = ( struct FPOS * ) malloc(
+      sizeof(struct FPOS) * cell->pinCNTinObject);
+    memcpy(cell->pin, cell->pin_tmp,
+      cell->pinCNTinObject * ( sizeof(struct PIN *) ));
+    memcpy(cell->pof, cell->pof_tmp,
+      cell->pinCNTinObject * ( sizeof(struct FPOS) ));
     free(cell->pin_tmp);
     free(cell->pof_tmp);
 
@@ -742,6 +1136,7 @@ void init_iter(struct ITER *it, int idx) {
   it->hpwl.x = it->hpwl.y = 0;
   it->tot_hpwl = 0;
   it->ovfl = 0;
+  it->potn = 0;
   it->wcof.x = it->wcof.y = 0;
   it->pcof = 0;
   it->beta = 0;
@@ -776,6 +1171,20 @@ void gp_opt(void) {
   }
     
   ns_opt.nesterov_opt();
+  UpdateModuleCoordiFromGcell();
+  fflush(stdout);
+}
+
+void gp_opt_3DIC(ot::Timer &timer) {
+  myNesterov ns_opt;
+
+  // fillerCell random placement
+  FillerCellRandPlace_3DIC();
+
+  printf("[PROC] Start NESTEROV's Optimization\n");
+  printf("[PROC] Global Lagrangian Multiplier is Applied\n");
+
+  ns_opt.nesterov_opt_3DIC(timer);
   UpdateModuleCoordiFromGcell();
   fflush(stdout);
 }
@@ -944,6 +1353,45 @@ void cell_init_2D(void) {
   }
 }
 
+void update_cell_density() {
+  struct CELL *cell;
+  struct TIER *tier;
+  struct FPOS scal;
+
+  printf("[INFO] tier->bin_stp = (%lf, %lf)\n", tier_st[0].bin_stp.x, tier_st[0].bin_stp.y);
+  printf("[INFO] tier->half_bin_stp = (%lf, %lf)\n", tier_st[0].half_bin_stp.x, tier_st[0].half_bin_stp.y);
+
+  // normal cases
+  // SQRT2 = smoothing parameter for density_size calculation
+  for ( int l = 0; l < numLayer; ++l ) {
+    tier = &tier_st[l];
+    for ( int i = 0; i < tier->cell_cnt; i++ ) {
+      cell = tier->cell_st[i];
+      
+      if ( cell->size.x < tier->bin_stp.x * SQRT2 ) {
+        scal.x = cell->size.x / ( tier->bin_stp.x * SQRT2 );
+        cell->half_den_size.x = tier->half_bin_stp.x * SQRT2;
+      }
+      else {
+        scal.x = 1.0;
+        cell->half_den_size.x = cell->half_size.x;
+      }
+      
+      if ( cell->size.y < tier->bin_stp.y * SQRT2 ) {
+        scal.y = cell->size.y / ( tier->bin_stp.y * SQRT2 );
+        cell->half_den_size.y = tier->half_bin_stp.y * SQRT2;
+      }
+      else {
+        scal.y = 1.0;
+        cell->half_den_size.y = cell->half_size.y;
+      }
+      
+      cell->den_scal = scal.x * scal.y;
+    }
+  }
+    
+}
+
 // why there is NO SQRT2?
 // should be removed to avoid confusing. 
 // void update_cell_den() {
@@ -981,8 +1429,8 @@ void msh_init() {
   msh_yz = msh.y;
   int d_msh = msh.x * msh.y;
 
-  printf("INFO:  D_MSH = %d \n", d_msh);
-  printf("INFO:  MSH(X, Y) = (%d, %d)\n", msh.x, msh.y);
+  printf("[INFO] D_MSH = %d \n", d_msh);
+  printf("[INFO] MSH(X, Y) = (%d, %d)\n", msh.x, msh.y);
 }
 
 // void stepSizeAdaptation_by1stOrderEPs (prec   curr_hpwl) {

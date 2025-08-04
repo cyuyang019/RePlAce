@@ -148,7 +148,8 @@ FPOS get_wlen_cof2(prec ovf) {
     cof.y = 10.0;
   }
   else {
-    tmp = 1.0 / pow(10.0, (ovf - 0.1) * 20 / 9.0 - 1.0);
+    // tmp = 1.0 / pow(10.0, (ovf - 0.1) * 20 / 9.0 - 1.0);
+    tmp = 1.0 / pow(10.0, (ovf * 20 - 11) / 9.0);
     cof.x = cof.y = tmp;
   }
 //  cout << "ovfl: " << ovf << endl;
@@ -178,6 +179,9 @@ void wcof_init(FPOS bstp) {
   //
   base_wcof.x = wcof00.x / (0.5 * (bstp.x + bstp.y));
   base_wcof.y = wcof00.y / (0.5 * (bstp.x + bstp.y));
+
+  base_wcof.x *= 100.f;
+  base_wcof.y *= 100.f;
 
   wlen_cof = fp_scal(0.1, base_wcof);
 //  wlen_cof = base_wcof;
@@ -350,6 +354,63 @@ prec UpdateNetAndGetHpwl() {
   }
 
   return total_hpwl.x + total_hpwl.y;
+}
+
+void wlen_pre(int cell_idx, FPOS *wpre) {
+  wpre->x = wpre->y = 0;
+
+#ifdef NO_WLEN
+  return;
+#endif
+
+  CELL *cell = &gcell_st[cell_idx];
+  // if ( cell_idx < 10 ) {
+    //   printf("curTimingWeight: %e\n", curTimingWeight);
+    // }
+
+  switch ( WLEN_PRE ) {
+  case NoneWpre:
+    wpre->x = wpre->y = 0;
+    break;
+
+  case PcntWpre:
+    wpre->x = wpre->y = (prec) (cell->pinCNTinObject);
+    break;
+
+  case TDWpre:
+    PIN *pin;
+    NET *net;
+    wpre->x = wpre->y = 0;
+
+    if ( isTiming ) {
+      for ( int i = 0; i < cell->pinCNTinObject; i++ ) {
+        pin = cell->pin[i];
+        net = &netInstance[pin->netID];
+
+        // if ( net->pinCNTinObject <= 1 )
+        //   continue;
+
+        float curTimingWeight = netInstance[pin->netID].timingWeight;
+        // Timing Control Parts
+        if ( isTiming && netWeightApply && curTimingWeight > 0 ) {
+          wpre->x += curTimingWeight;
+          wpre->y += curTimingWeight;
+        }
+        else {
+          wpre->x += 1.0;
+          wpre->y += 1.0;
+        }
+      }
+    }
+    else {
+      wpre->x = wpre->y = (prec) (cell->pinCNTinObject);
+    }
+
+    break;
+  }
+
+  wpre->x *= gp_wlen_weight.x /* / 2000.0 */;
+  wpre->y *= gp_wlen_weight.y /* / 2000.0 */;
 }
 
 void wlen_grad2(int cell_idx, FPOS *grad2) {
@@ -932,9 +993,10 @@ void net_update_wa(FPOS *st) {
           MODULE *curModule = &moduleInstance[pin->moduleID];
           FPOS pof = curModule->pof[pin->pinIDinModule];
           FPOS center = st[pin->moduleID];
+          FPOS half_size = curModule->half_size;
           FPOS fp;
-          fp.x = center.x + pof.x;
-          fp.y = center.y + pof.y;
+          fp.x = center.x - half_size.x + pof.x;
+          fp.y = center.y - half_size.y + pof.y;
           pin->fp = fp;
 
           net->min_x = min(net->min_x, fp.x);

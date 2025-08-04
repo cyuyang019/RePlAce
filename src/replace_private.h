@@ -67,8 +67,8 @@
 
 #include <tcl.h>
 
-#define PI 3.141592653589793238462L
-#define SQRT2 1.414213562373095048801L
+constexpr long double PI = 3.141592653589793238462L;
+constexpr long double SQRT2 = 1.414213562373095048801L;
 
 // for PREC_MODE variable => required for different codes.
 #define IS_FLOAT 0
@@ -134,6 +134,17 @@ typedef double prec;
 
 #define DEN_GRAD_SCALE 1.0 /* 0.1 */ /* 0.5 */ /* 0.25 */ /* 0.125 */
 #define LAYER_ASSIGN_3DIC MIN_TIER_ORDER                  /* MAX_AREA_DIS_DIV */
+
+
+constexpr float SCALE = 2000.f;
+constexpr float top_unit_res = 0.0332811 / SCALE; // in kohm
+constexpr float top_unit_cap = 7.5151e-02 / SCALE; // in fF
+constexpr float bot_unit_res = 0.025357 / SCALE; // in kohm
+constexpr float bot_unit_cap = 27.2261e-02 / SCALE; // in fF
+constexpr float HBT_res = 0.0000336; // in kohm
+constexpr float HBT_cap = 27.6245e-02; // in fF
+
+
 ///////////////////////////////////////////////////////////////////////////
 
 
@@ -231,7 +242,7 @@ struct PIN {
   int pinIDinNet;
   int gid;   // current Pin's idx
   int IO;    // I -> 0; O -> 1
-  int term;  // term -> 1, move -> 0
+  int term;  // term -> 1, move -> 0, steiner point -> 2
   int X_MIN;
   int Y_MIN;
   int X_MAX;
@@ -413,8 +424,13 @@ struct NET {
   int idx;
   int mod_idx;
   prec timingWeight;
+  prec net_criticality;
   prec customWeight;
   prec wl_rsmt;             // lutong
+
+  // for timing differentiable global placement
+  std::unordered_map<std::string, PIN*> pin_map;
+  std::unordered_multimap<PIN *, std::pair<PIN *, float>> timing_grad_map;
 
   const char* Name();
   NET();
@@ -527,6 +543,9 @@ extern prec netWeightBound;
 extern prec netWeightScale;
 extern bool netWeightApply;
 
+extern prec maxNetWeight;
+extern prec netWeightDecay;
+
 extern prec capPerMicron;
 extern prec resPerMicron;
 
@@ -540,6 +559,7 @@ extern std::string plotColorFile;
 extern int timingUpdateIter;
 extern int pinCNT;
 extern int moduleCNT;
+extern int *moduleCNT_3D;
 extern int gcell_cnt;
 
 extern std::string globalRouterPosition;
@@ -567,6 +587,7 @@ enum {
   mLG3D,          // MACRO_LEGALIZATION
   cGP3D,          // STDCELL_ONLY_3D_GLOBAL_PLACE
   cGP2D,          // STDCELL_ONLY_2D_GLOBAL_PLACE
+  c3DIC,          // 3DIC_TIMING_ECO
   DETAIL_PLACE
 };
 
@@ -587,6 +608,7 @@ extern prec routeMaxDensity;
 
 extern int placementStdcellCNT;
 extern int gfiller_cnt;
+extern int *gfiller_cnt_3D;
 extern int placementMacroCNT;
 enum { CDFT, RDFT, DDCT };
 extern int msh_yz;
@@ -672,29 +694,39 @@ extern prec rowHeight;
 extern prec SITE_SPA;
 extern prec layout_area;
 extern prec total_std_area;
+extern prec *total_std_area_3D;
 extern prec total_std_den;
+extern prec *total_std_den_3D;
 extern prec total_modu_area;
+extern prec *total_modu_area_3D;
 extern prec inv_total_modu_area;
+extern prec *inv_total_modu_area_3D;
 extern prec total_cell_area;
+extern prec *total_cell_area_3D;
 extern prec curr_cell_area;  // lutong
 
 extern prec total_term_area;
 extern prec total_move_available_area;
 extern prec total_filler_area;
+extern prec *total_filler_area_3D;
 extern prec total_PL_area;
 extern prec total_termPL_area;
 extern prec total_WS_area;
 
 extern prec curr_WS_area;  // lutong
 extern prec filler_area;
+extern prec *filler_area_3D;
 extern prec target_cell_den;
 extern prec target_cell_den_orig;  // lutong
 extern prec total_macro_area;
 extern prec ignoreEdgeRatio;
 extern prec grad_stp;
 extern prec gsum_phi;
+extern prec *gsum_phi_3D;
 extern prec gsum_ovfl;
+extern prec *gsum_ovfl_3D;
 extern prec gsum_ovf_area;
+extern prec *gsum_ovf_area_3D;
 extern prec overflowMin;
 extern prec mGP3D_opt_phi_cof;
 extern prec mGP2D_opt_phi_cof;
@@ -787,6 +819,7 @@ extern FPOS term_pmax;
 extern FPOS term_pmin;
 
 extern FPOS filler_size;
+extern FPOS *filler_size_3D;
 
 extern POS msh;
 
@@ -799,6 +832,7 @@ extern TIER *tier_st;
 extern POS dim_bin;
 extern POS dim_bin_mGP2D;
 extern POS dim_bin_cGP2D;
+extern POS dim_bin_3DIC;
 
 extern FPOS grow_pmin;
 extern FPOS grow_pmax;
@@ -806,14 +840,18 @@ extern FPOS grow_pmax;
 ///////////////////////////////////////////////////////////////////////////
 /*  ARGUMENTS: main.cpp                                                  */
 ///////////////////////////////////////////////////////////////////////////
+extern bool is_3D;
 extern std::string bmFlagCMD;
 extern std::string auxCMD;
 extern std::string defName;
+extern std::string defName_top, defName_btm;
 extern std::string cadbinName;
 extern std::string cadboutName;
+extern std::string cadbglobalName;
 extern std::string verilogName;
 extern std::string sdcName;
 extern std::vector< std::string > lefStor;
+extern std::vector< std::string > lefStor_top, lefStor_btm;
 extern std::string outputCMD;
 extern std::string experimentCMD;
 extern std::vector< std::string > libStor;
@@ -853,6 +891,9 @@ extern bool trialRunCMD;
 extern bool autoEvalRC_CMD;
 extern bool onlyLG_CMD;
 extern bool isFastMode;
+extern bool doLegalization;
+extern bool doDetailPlace;
+extern bool doCellSwap;
 
 extern Tcl_Interp* _interp;
 
@@ -906,10 +947,10 @@ void overlap_count(int iter);
 void update_net_by_pin(void);
 
 inline int dge(prec a, prec b) {
-  return (a > b || a == b) ? 1 : 0;
+  return ( a > b || a == b ) ? 1 : 0;
 }
 inline int dle(prec a, prec b) {
-  return (a < b || a == b) ? 1 : 0;
+  return ( a < b || a == b ) ? 1 : 0;
 }
 
 void OR_opt(void);

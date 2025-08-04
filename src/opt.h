@@ -44,10 +44,13 @@
 #include <vector>
 #include "replace_private.h"
 
+#include <ot/timer/timer.hpp>
+
 extern int FILLER_PLACE;
 extern int NUM_ITER_FILLER_PLACE;  // fast filler pre-place, need tuning
 extern prec opt_phi_cof;
 extern prec opt_phi_cof_local;
+extern prec timing_phi_cof;
 extern prec gsum_pcnt;
 extern prec gsum_area;
 extern prec avg80p_cell_area;
@@ -79,7 +82,9 @@ struct ITER {
   prec tot_stnwl;  // lutong
   prec tot_wwl;    // lutong
   prec potn;
+  prec potn_3D[3];
   prec ovfl;
+  prec ovfl_3D[3];
   prec pcof;
   int idx;
   prec beta;
@@ -154,6 +159,7 @@ prec get_norm(struct FPOS *st, int n, prec num);
 void setup_before_opt(void);
 int setup_before_opt_mGP2D(void);
 int setup_before_opt_cGP2D(void);
+void setup_before_opt_3DIC(void);
 inline bool isPOTNuphill(void);
 int definePOTNphase(prec);
 void stepSizeAdaptation_by2ndOrderEPs(prec);
@@ -164,10 +170,13 @@ int post_mGP2D_delete(void);
 void post_opt(void);
 
 void cell_init(void);
+void cell_init_3DIC(void);
 
 void cell_filler_init();
+void cell_filler_init_3DIC();
 
 void whitespace_init(void);
+void whitespace_init_3DIC(void);
 
 void cell_update(struct FPOS *st, int n);
 void cell_delete(void);
@@ -240,13 +249,16 @@ void init_iter(struct ITER *it, int idx);
 
 void cell_macro_copy(void);
 void gp_opt(void);
+void gp_opt_3DIC(ot::Timer &timer);
 
 void FillerCellRandPlace(int idx);
 void sa_pl_shift(struct FPOS *x_st, int N);
 
 void tier_delete_mGP2D(void);
 void tier_init_2D(int);
+void tier_init_3DIC();
 void cell_init_2D(void);
+void update_cell_density();
 
 //#define LC_REF_DIS
 #define ref_yz_dis 50.0  // empirical from adaptec1, need deep tuning

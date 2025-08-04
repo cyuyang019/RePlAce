@@ -141,6 +141,111 @@ void tier_init_2D(int STAGE) {
   }
 }
 
+void tier_init_3DIC() {
+  // Module initialization on tier
+  struct MODULE **modu_st;
+  struct TIER *tier = nullptr;
+  struct MODULE *modu = nullptr;
+  struct CELL *cell = NULL;
+
+  for ( int currTier = 0; currTier < numLayer; ++currTier ) {
+
+    tier = &tier_st[currTier];
+
+    tier->modu_cnt = moduleCNT_3D[currTier];
+    tier->modu_area = 0;
+
+    delete[] modu_st;
+    delete[] tier->modu_st;
+    struct MODULE **modu_st = ( struct MODULE ** ) malloc(sizeof(struct MODULE *) * moduleCNT_3D[currTier]);
+    tier->modu_st = ( struct MODULE ** ) malloc(sizeof(struct MODULE *) * moduleCNT_3D[currTier]);
+
+
+    int idx = 0;
+    for ( int i = 0; i < moduleCNT; ++i ) {
+      if ( moduleInstance[i].tier == currTier ) {
+        modu_st[idx++] = &moduleInstance[i];
+      }
+    }
+    
+    for ( int i = 0; i < moduleCNT_3D[currTier]; ++i ) {
+      modu = modu_st[i];
+
+      tier->modu_st[i] = modu;
+      tier->modu_area += modu->area;
+    }
+
+    if ( tier->modu_area / tier->ws_area > target_cell_den ) {
+      cout << "** Warning: Exceed the placement Area for layer " << currTier << endl;
+      cout << "   ModuleArea     : " << tier->modu_area << endl;
+      cout << "   WhiteSpaceArea : " << tier->ws_area << endl;
+      cout << "   TargetDensity  : " << target_cell_den << endl;
+    }
+
+  }
+  delete[] modu_st;
+
+  for ( int i = 0; i < numLayer; i++ ) {
+    tier = &tier_st[i];
+
+    prec moduleDensity = tier->modu_area / tier->ws_area;
+    printf("[INFO] TierUtil for layer %d = %lf\n", i, moduleDensity);
+  }
+
+  // Filler initialization on tier
+  int i = 0;
+
+  for ( int z = 0; z < numLayer; z++ ) {
+    tier = &tier_st[z];
+    delete[] tier->cell_st;
+    tier->cell_st = ( struct CELL ** ) malloc(sizeof(struct CELL *) * ( tier->modu_cnt + gfiller_cnt_3D[z] ));
+    tier->cell_cnt = 0;
+  }
+
+  for ( i = 0; i < gcell_cnt; i++ ) {
+    cell = &gcell_st[i];
+
+    tier = &tier_st[cell->tier];
+    tier->cell_st[tier->cell_cnt] = cell;
+    ++tier->cell_cnt;
+  }
+
+  for ( int z = 0; z < numLayer; z++ ) {
+    tier = &tier_st[z];
+
+    tier->filler_area = total_filler_area_3D[z];
+    tier->filler_cnt = gfiller_cnt_3D[z];
+
+    printf("[INFO] PlaceArea for layer %d = %lf\n", z, tier->area);
+    printf("[INFO] ModuleArea for layer %d = %lf\n", z, tier->modu_area);
+    printf("[INFO] FillerArea for layer %d = %lf\n", z, tier->filler_area);
+    printf("[INFO] NumModules for layer %d = %d\n", z, tier->modu_cnt);
+    printf("[INFO] NumFillers for layer %d = %d\n", z, tier->filler_cnt);
+    printf("[INFO] NumCells for layer %d = %d\n", z, tier->cell_cnt);
+
+  }
+
+  /* cannot understand the purpose of the code
+  for ( int z = 0; z < numLayer; z++ ) {
+    tier = &tier_st[z];
+    if ( tier->cell_cnt == 0 ) {
+      free(tier->cell_st);
+    }
+    else {
+      // igkang:  replace realloc to mkl
+      tier->cell_st_tmp = ( CELL ** ) malloc(sizeof(struct CELL *) * ( tier->modu_cnt + gfiller_cnt ));
+      memcpy(tier->cell_st_tmp, tier->cell_st, sizeof(struct CELL *) * ( tier->modu_cnt + gfiller_cnt ));
+      free(tier->cell_st);
+      tier->cell_st = ( CELL ** ) malloc(sizeof(struct CELL *) * tier->cell_cnt);
+      memcpy(tier->cell_st, tier->cell_st_tmp, sizeof(struct CELL *) * tier->cell_cnt);
+      free(tier->cell_st_tmp);
+      // tier->cell_st = (CELL**)realloc(tier->cell_st, sizeof(struct
+      // CELL*)*tier->cell_cnt);
+    }
+  }
+  */
+}
+
 void tier_delete_mGP2D(void) {
   int z = 0;
   struct TIER *tier = NULL;

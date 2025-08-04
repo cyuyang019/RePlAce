@@ -53,6 +53,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <cmath>
+#include <filesystem>
 
 using namespace cimg_library;
 
@@ -275,6 +276,68 @@ void DrawGcell(CImgObj &img, const unsigned char fillerColor[],
   }
 }
 
+void DrawGcell_3DIC(CImgObj &img, const unsigned char fillerColor[],
+  const unsigned char cellColor[],
+  const unsigned char macroColor[], float opacity, int tier) {
+  for ( int i = 0; i < gcell_cnt; i++ ) {
+    CELL *curGCell = &gcell_st[i];
+
+    if ( curGCell->tier != tier ) {
+      continue;
+    }
+
+    curGCell->pmin.x = curGCell->center.x - 0.5 * curGCell->size.x;
+    curGCell->pmax.x = curGCell->center.x + 0.5 * curGCell->size.x;
+
+    curGCell->pmin.y = curGCell->center.y - 0.5 * curGCell->size.y;
+    curGCell->pmax.y = curGCell->center.y + 0.5 * curGCell->size.y;
+
+    int x1 = pe.GetX(curGCell->pmin);
+    int x3 = pe.GetX(curGCell->pmax);
+    int y1 = pe.GetY(curGCell->pmin);
+    int y3 = pe.GetY(curGCell->pmax);
+
+    // skip drawing for FillerCell
+    // if ( curGCell->flg == FillerCell ) {
+    //   continue;
+    // }
+
+    // Color settings for Macro / StdCells
+    unsigned char color[3] = { 0, };
+    if ( curGCell->flg == Macro ) {
+      for ( int j = 0; j < 3; j++ ) {
+        color[j] = macroColor[j];
+      }
+    }
+    else if ( curGCell->flg == StdCell ) {
+      if ( pe.hasCellColor ) {
+        color[0] = pe.colors[i].r();
+        color[1] = pe.colors[i].g();
+        color[2] = pe.colors[i].b();
+      }
+      else {
+        for ( int j = 0; j < 3; j++ ) {
+          color[j] = cellColor[j];
+        }
+      }
+    }
+    else if ( curGCell->flg == FillerCell ) {
+      for ( int j = 0; j < 3; j++ ) {
+        color[j] = fillerColor[j];
+      }
+    }
+    //    cout << "color: " << (int)color[0] << " " << (int)color[1] << " " << (int)color[2] << endl;
+    img.draw_rectangle(x1, y1, x3, y3, color, opacity);
+
+    // drawing boundary for Macro cells
+    if ( curGCell->flg == Macro ) {
+      img.draw_rectangle(x1, y1, x3, y3, black, opacity, ~0U);
+      // img.draw_text((x1+x3)/2, (y1+y3)/2, curGCell->name, black, NULL, 1,
+      // 20);
+    }
+  }
+}
+
 void DrawModule(CImgObj &img, const unsigned char color[], float opacity) {
   for(int i = 0; i < moduleCNT; i++) {
     MODULE *curModule = &moduleInstance[i];
@@ -306,9 +369,44 @@ void DrawModule(CImgObj &img, const unsigned char color[], float opacity) {
   }
 }
 
-void DrawBinDensity(CImgObj &img, float opacity) {
-  for(int i = 0; i < tier_st[0].tot_bin_cnt; i++) {
-    BIN *curBin = &tier_st[0].bin_mat[i];
+void DrawModule_3DIC(CImgObj &img, const unsigned char color[], float opacity, int tier) {
+  for ( int i = 0; i < moduleCNT; i++ ) {
+    MODULE *curModule = &moduleInstance[i];
+
+    if ( curModule->tier != tier ) {
+      continue;
+    }
+
+    // update pmin & pmax
+    curModule->pmin.x = curModule->center.x - 0.5 * curModule->size.x;
+    curModule->pmax.x = curModule->center.x + 0.5 * curModule->size.x;
+
+    curModule->pmin.y = curModule->center.y - 0.5 * curModule->size.y;
+    curModule->pmax.y = curModule->center.y + 0.5 * curModule->size.y;
+
+    int x1 = pe.GetX(curModule->pmin);
+    int x3 = pe.GetX(curModule->pmax);
+    int y1 = pe.GetY(curModule->pmin);
+    int y3 = pe.GetY(curModule->pmax);
+
+    unsigned char cColor[3] = { 0, };
+    if ( pe.hasCellColor ) {
+      cColor[0] = pe.colors[i].r();
+      cColor[1] = pe.colors[i].g();
+      cColor[2] = pe.colors[i].b();
+    }
+    else {
+      for ( int j = 0; j < 3; j++ ) {
+        cColor[j] = color[j];
+      }
+    }
+    img.draw_rectangle(x1, y1, x3, y3, cColor, opacity);
+  }
+}
+
+void DrawBinDensity(CImgObj &img, float opacity, int layer = 0) {
+  for(int i = 0; i < tier_st[layer].tot_bin_cnt; i++) {
+    BIN *curBin = &tier_st[layer].bin_mat[i];
     int x1 = pe.GetX(curBin->pmin);
     int x3 = pe.GetX(curBin->pmax);
     int y1 = pe.GetY(curBin->pmin);
@@ -385,11 +483,13 @@ void CimgDrawArrow(CImgObj &img, int x1, int y1, int x3, int y3, int thick,
   //    img.draw_arrow( x1, y1, x3, y3, color, opacity );
 }
 
-void DrawArrowDensity(CImgObj &img, float opacity) {
+void DrawArrowDensity(CImgObj &img, float opacity, int layer = 0) {
   int binMaxX = (STAGE == cGP2D) ? dim_bin_cGP2D.x
-                                 : (STAGE == mGP2D) ? dim_bin_mGP2D.x : INT_MIN;
+                                 : (STAGE == mGP2D) ? dim_bin_mGP2D.x
+                                 : (STAGE == c3DIC) ? dim_bin_3DIC.x : INT_MIN;
   int binMaxY = (STAGE == cGP2D) ? dim_bin_cGP2D.y
-                                 : (STAGE == mGP2D) ? dim_bin_mGP2D.y : INT_MIN;
+                                 : (STAGE == mGP2D) ? dim_bin_mGP2D.y
+                                 : (STAGE == c3DIC) ? dim_bin_3DIC.y : INT_MIN;
 
   int arrowSpacing = (binMaxX / 16 <= 0) ? 1 : binMaxX / 16;
 
@@ -398,7 +498,7 @@ void DrawArrowDensity(CImgObj &img, float opacity) {
   for(int i = 0; i < binMaxX; i += arrowSpacing) {
     for(int j = 0; j < binMaxY; j += arrowSpacing) {
       int binIdx = binMaxX * j + i;
-      BIN *curBin = &tier_st[0].bin_mat[binIdx];
+      BIN *curBin = &tier_st[layer].bin_mat[binIdx];
 
       prec newEx = fabs(curBin->e.x);
       prec newEy = fabs(curBin->e.y);
@@ -411,7 +511,7 @@ void DrawArrowDensity(CImgObj &img, float opacity) {
   for(int i = 0; i < binMaxX; i += arrowSpacing) {
     for(int j = 0; j < binMaxY; j += arrowSpacing) {
       int binIdx = binMaxX * j + i;
-      BIN *curBin = &tier_st[0].bin_mat[binIdx];
+      BIN *curBin = &tier_st[layer].bin_mat[binIdx];
 
       int signX = (curBin->e.x > 0) ? 1 : -1;
       int signY = (curBin->e.y > 0) ? 1 : -1;
@@ -426,8 +526,8 @@ void DrawArrowDensity(CImgObj &img, float opacity) {
       prec dy = signY * newVy / eyMax;
 
       //        prec theta = atan(dy / dx);
-      prec length = sqrt(pow(tier_st[0].bin_stp.x, 2.0) +
-                         pow(tier_st[0].bin_stp.y, 2.0)) *
+      prec length = sqrt(pow(tier_st[layer].bin_stp.x, 2.0) +
+                         pow(tier_st[layer].bin_stp.y, 2.0)) *
                     5;
 
       int x3 = x1 + dx * length;
@@ -466,6 +566,18 @@ void SaveCellPlot(CImgObj &img, bool isGCell) {
   }
   else {
     DrawGcell(img, purple, darkblue, red, opacity);
+  }
+}
+
+void SaveCellPlot_3DIC(CImgObj &img, bool isGCell, int tier) {
+  float opacity = 0.7;
+
+  // STD CELL
+  if ( !isGCell ) {
+    DrawModule_3DIC(img, red, opacity, tier);
+  }
+  else {
+    DrawGcell_3DIC(img, purple, darkblue, red, opacity, tier);
   }
 }
 
@@ -564,9 +676,46 @@ to_string(int(100*curBin->den2)).c_str(), black, NULL, 1, 25);
   string saveName = imgPosition + string(".jpg");
 
   img.draw_text(50, 50, imgName.c_str(), black, NULL, 1, 30);
-  img.save_jpeg(saveName.c_str(), 70);
+  img.save_jpeg(saveName.c_str(), 100);
   //  img.save_bmp( string(imgPosition + string(".bmp")).c_str() );
   cout << "INFO: " << saveName << " image has been saved" << endl;
+}
+
+void SaveCellPlotAsJPEG_3DIC(string imgName, bool isGCell, string imgPosition) {
+  // if gcell is exist, then update module's information
+  // before drawing
+  //    if( gcell_st ) {
+  //        GCellPinCoordiUpdate();
+  //    }
+
+  if(!isPlotEnvInit) {
+    pe.Init();
+    isPlotEnvInit = true;
+  }
+
+  float opacity = 0.7;
+
+  for ( int l = 0; l < numLayer; ++l ) {
+    
+    CImg< unsigned char > img(pe.GetTotalImageWidth(), pe.GetTotalImageHeight(), 1, 3, 255);
+
+    SaveCellPlot_3DIC(img, isGCell, l);
+    
+    //    cout << "current imgName: " << imgName << endl;
+    // Finally draw image info
+    string saveName = imgPosition + "/tier" + std::to_string(l) + "/" + imgName + ".jpg";
+
+    if ( !std::filesystem::is_directory(imgPosition + "/tier" + std::to_string(l)) ) {
+      saveName = imgPosition + "/" + imgName + "_tier" + std::to_string(l) + ".jpg";
+    }
+
+    img.draw_text(50, 50, imgName.c_str(), black, NULL, 1, 30);
+    img.save_jpeg(saveName.c_str(), 100);
+
+    // cout << "INFO: " << saveName << " image has been saved" << endl;
+    
+  }
+
 }
 
 //
@@ -591,6 +740,33 @@ void SaveBinPlotAsJPEG(string imgName, string imgPosition) {
   //  img.save_bmp( string(imgPosition + string(".bmp")).c_str() );
   cout << "INFO: " << saveName << " image has been saved" << endl;
 }
+
+void SaveBinPlotAsJPEG_3DIC(string imgName, string imgPosition) {
+  if ( !isPlotEnvInit ) {
+    pe.Init();
+    isPlotEnvInit = true;
+  }
+
+  for ( int l = 0; l < numLayer; ++l ) { 
+    
+    CImg< unsigned char > img(pe.GetTotalImageWidth(), pe.GetTotalImageHeight(), 1, 3, 255);
+    
+    DrawBinDensity(img, 1.f, l);
+    
+    //    cout << "current imgName: " << imgName << endl;
+    // Finally draw image info
+    string saveName = imgPosition + "/tier" + std::to_string(l) + "/" + imgName + ".jpg";
+    if ( !std::filesystem::is_directory(imgPosition + "/tier" + std::to_string(l)) ) {
+      saveName = imgPosition + "/" + imgName + "_tier" + std::to_string(l) + ".jpg";
+    }
+
+    img.draw_text(50, 50, imgName.c_str(), black, NULL, 1, 30);
+    img.save_jpeg(saveName.c_str(), 100);
+    //  img.save_bmp( string(imgPosition + string(".bmp")).c_str() );
+    // cout << "INFO: " << saveName << " image has been saved" << endl;
+  }
+}
+
 //
 // save current circuit's as BMP file in imgPosition & iternumber
 void SaveArrowPlotAsJPEG(string imgName, string imgPosition) {
@@ -612,6 +788,34 @@ void SaveArrowPlotAsJPEG(string imgName, string imgPosition) {
   img.save_jpeg(saveName.c_str(), 70);
   //  img.save_bmp( string(imgPosition + string(".bmp")).c_str() );
   cout << "INFO: " << saveName << " image has been saved" << endl;
+}
+
+void SaveArrowPlotAsJPEG_3DIC(string imgName, string imgPosition) {
+  if ( !isPlotEnvInit ) {
+    pe.Init();
+    isPlotEnvInit = true;
+  }
+
+  for ( int l = 0; l < numLayer; ++l ) {
+    
+    CImg< unsigned char > img(pe.GetTotalImageWidth(), pe.GetTotalImageHeight(), 1, 3, 255);
+    
+    float opacity = 1;
+    DrawBinDensity(img, opacity, l);
+    DrawArrowDensity(img, opacity, l);
+    
+    //    cout << "current imgName: " << imgName << endl;
+    // Finally draw image info
+    string saveName = imgPosition + "/tier" + std::to_string(l) + "/" + imgName + ".jpg";
+    if ( !std::filesystem::is_directory(imgPosition + "/tier" + std::to_string(l)) ) {
+      saveName = imgPosition + "/" + imgName + "_tier" + std::to_string(l) + ".jpg";
+    }
+
+    img.draw_text(50, 50, imgName.c_str(), black, NULL, 1, 30);
+    img.save_jpeg(saveName.c_str(), 100);
+    //  img.save_bmp( string(imgPosition + string(".bmp")).c_str() );
+    // cout << "INFO: " << saveName << " image has been saved" << endl;
+  }
 }
 
 // control vector's index to plot
@@ -931,4 +1135,17 @@ void mkdirPlot() {
 
   sprintf(mkdir_cmd, "mkdir -p %s/arrow", dir_bnd);
   system(mkdir_cmd);
+
+  if ( is_3D ) {   
+    for ( int l = 0; l < 3; ++l ) {
+      sprintf(mkdir_cmd, "mkdir -p %s/cell/tier%d", dir_bnd, l);
+      system(mkdir_cmd);
+      
+      sprintf(mkdir_cmd, "mkdir -p %s/bin/tier%d", dir_bnd, l);
+      system(mkdir_cmd);
+      
+      sprintf(mkdir_cmd, "mkdir -p %s/arrow/tier%d", dir_bnd, l);
+      system(mkdir_cmd);
+    }
+  }
 }

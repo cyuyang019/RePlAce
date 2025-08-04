@@ -162,13 +162,135 @@ void myNesterov::nesterov_opt() {
     TimingInst.WriteSpef(spefName);
     TimingInst.ExecuteStaLater();
   }
-  else {
+  else if ( verilogTopModule != "" && verilogName != "" && sdcName != "" && libStor.size() > 0 ) {
     // for comparison
-    //        TimingInst.ExecuteStaFirst(gbch, verilogCMD, libStor, sdcCMD);
+    TimingInst.BuildSteiner(true);
+    TimingInst.ExecuteStaFirst(verilogTopModule, verilogName, libStor, sdcName);
   }
+
+  // print gcell information
+  if ( gVerbose >= 2 ) { 
+    printf("INFO:  Final Gcell Information\n");
+    for ( int i = 0; i < 10; i++ ) {
+      printf("INFO:  %d. %s\n", i, gcell_st[i].Name());
+      printf("coordinate: %f %f\n", x_st[i].x, x_st[i].y);
+      printf("size: %f %f\n", gcell_st[i].size.x, gcell_st[i].size.y);
+      printf("center: %f %f\n", gcell_st[i].center.x, gcell_st[i].center.y);
+      printf("half_size: %f %f\n", gcell_st[i].half_size.x, gcell_st[i].half_size.y);
+      printf("half_den_size: %f %f\n", gcell_st[i].half_den_size.x, gcell_st[i].half_den_size.y);
+      printf("den_scal: %f\n", gcell_st[i].den_scal);
+      printf("pmin: %f %f\n", gcell_st[i].pmin.x, gcell_st[i].pmin.y);
+      printf("pmax: %f %f\n\n", gcell_st[i].pmax.x, gcell_st[i].pmax.y);
+    }
+  }
+
   malloc_free();
 }
 
+
+void myNesterov::nesterov_opt_3DIC(ot::Timer &timer) {
+  int last_iter = 0;
+
+  // Check timing before placement
+  PrintProcBegin("Steiner Tree Consturction");
+  ot::BuildSteiner(timer);
+  PrintProcEnd("Steiner Tree Consturction");
+  timer.update_timing();
+  
+  OT_LOGI("TNS: ", timer.report_tns_elw(ot::Split::MAX).value());
+  float wns = timer.report_wns(ot::Split::MAX).value();
+  OT_LOGI("WNS: ", wns);
+  
+  if ( isTiming ) {
+    timer.set_target_slack(0.0f);
+    timer.set_gamma(100.f);
+    timer.set_wns_coeff(1.f);
+    timer.set_tns_coeff(1000.f);
+    // auto wire_gradients = timer.get_wire_gradients();
+    // print wire_gradients
+    // for (const auto& [net_name, wire_gradient] : wire_gradients) {
+    //   printf("Net: %s\n", net_name.c_str());
+    //   for ( auto &[pin1, pin2, gradient] : wire_gradient ) {
+    //     printf("%s <-> %s = %f\n", pin1.c_str(), pin2.c_str(), gradient);
+    //   }
+    //   printf("\n");
+    // }
+    // exit(0);
+
+    // UpdateTimingGrad(wire_gradients);
+  }
+
+  InitializationCommonVar();
+
+  InitializationCellStatus();
+
+  // x_st and y_st are exactly same, 
+  // but why do we need to re-do this??
+  // pre-calculates for WL forces
+  net_update(y_st);
+
+  // pre-calculates Density forces.
+  bin_update();
+
+  // fill in y_wdst, y_pdst , and y_pdstl if needed
+  InitializationCostFunctionGradient(&sum_wgrad, &sum_pgrad);
+
+  InitializationCoefficients();
+
+  // density only preconditioner. not recommended.
+  if ( DEN_ONLY_PRECON ) {
+    InitializationPrecondition_DEN_ONLY_PRECON();
+  }
+  // normal preconditioner.
+  else {
+    InitializationPrecondition();
+  }
+
+  InitializationIter();
+
+  z_init();
+
+  net_update(z_st);
+  bin_update();  // igkang
+
+  it->tot_wwl = ( 1.0 - opt_w_cof ) * it->tot_hpwl + opt_w_cof * it->tot_stnwl;
+
+  
+  getCostFuncGradient2(z_dst, z_wdst, z_pdst, z_pdstl, N, cellLambdaArr);
+  
+  a = 1.0;
+  get_lc(y_st, y_dst, z_st, z_dst, &it0, N);
+  
+  it->alpha00 = it0.alpha00;
+
+  
+  PrintNesterovOptStatus_3DIC(0);
+
+  if ( isPlot ) {
+    SaveCellPlotAsJPEG_3DIC("iter0", true, string(dir_bnd) + "/cell");
+
+    SaveBinPlotAsJPEG_3DIC("iter0", string(dir_bnd) + "/bin");
+
+    SaveArrowPlotAsJPEG_3DIC("iter0", string(dir_bnd) + "/arrow");
+  }
+
+  NUM_ITER_FILLER_PLACE = 50;
+  timing_phi_cof = 0.f;
+  last_iter = DoNesterovOptimization_3DIC(timer);
+
+  SummarizeNesterovOpt(last_iter);
+
+  // Check Timing after Global Placement
+  PrintProcBegin("Steiner Tree Consturction");
+  ot::BuildSteiner(timer);
+  PrintProcEnd("Steiner Tree Consturction");
+  timer.update_timing();
+
+  OT_LOGI("TNS: ", timer.report_tns_elw(ot::Split::MAX).value());
+  OT_LOGI("WNS: ", timer.report_wns(ot::Split::MAX).value());
+
+  malloc_free();
+}
 
 // Check whether current iter is timing iterations.
 //
@@ -318,20 +440,20 @@ void myNesterov::InitializationCellStatus() {
   }
 
   // no need
-  if(STAGE == mGP3D || STAGE == cGP3D)
-    ShiftPL_SA(y_st, N);
+  // if(STAGE == mGP3D || STAGE == cGP3D)
+  //   ShiftPL_SA(y_st, N);
 
   // no need
-  if(numLayer == 1) {
-    if(placementMacroCNT == 0) {
-      if(STAGE == cGP2D)
-        ShiftPL_SA(y_st, N);
-    }
-    else {
-      if(STAGE == mGP2D)
-        ShiftPL_SA(y_st, N);
-    }
-  }
+  // if(numLayer == 1) {
+  //   if(placementMacroCNT == 0) {
+  //     if(STAGE == cGP2D)
+  //       ShiftPL_SA(y_st, N);
+  //   }
+  //   else {
+  //     if(STAGE == mGP2D)
+  //       ShiftPL_SA(y_st, N);
+  //   }
+  // }
 }
 
 void myNesterov::InitializationCoefficients() {
@@ -376,7 +498,7 @@ void myNesterov::InitializationCoefficients() {
     wlen_cof = fp_mul(base_wcof, wcof);
     wlen_cof_inv = fp_inv(wlen_cof);
   }
-  else if(STAGE == cGP2D) {
+  else if(STAGE == cGP2D || STAGE == c3DIC) {
     if(placementMacroCNT > 0) {
       if(INPUT_FLG == MMS)
         cGP2D_buf_iter = mGP2D_tot_iter / 10;
@@ -399,14 +521,10 @@ void myNesterov::InitializationCoefficients() {
       opt_phi_cof = sum_wgrad / sum_pgrad * INIT_LAMBDA_COF_GP;
     }
     opt_w_cof = 0;
-    if(placementMacroCNT == 0) {
-      ALPHA = ALPHAcGP;  // 1E-15;
-      BETA = BETAcGP;    // 1E-14;
-    }
-    else {
-      ALPHA = ALPHAcGP;
-      BETA = BETAcGP;
-    }
+
+    ALPHA = ALPHAcGP;  // 1E-15;
+    BETA = BETAcGP;    // 1E-14;
+      
     wcof = get_wlen_cof(gsum_ovfl);
     wlen_cof = fp_mul(base_wcof, wcof);
     wlen_cof_inv = fp_inv(wlen_cof);
@@ -534,6 +652,12 @@ void myNesterov::InitializationIter() {
   it->hpwl = total_hpwl;
   it->potn = gsum_phi;
   it->ovfl = gsum_ovfl;
+  if ( is_3D ) {
+    for ( int l = 0; l < numLayer; ++l ) {
+      it->potn_3D[l] = gsum_phi_3D[l];
+      it->ovfl_3D[l] = gsum_ovfl_3D[l];
+    }
+  }
   it->grad = get_norm(y_dst, N, 2.0);
 }
 
@@ -640,7 +764,14 @@ int myNesterov::DoNesterovOptimization(Timing::Timing &TimingInst) {
     while(1) {
       backtrack_cnt++;
 
-      if(timeon) {
+      if ( gVerbose >= 0 ) {
+          // printf("INFO:    Iteration %d, backtrack %d, alpha = %f, y_st[0] = %f\n", i,
+          //   backtrack_cnt, alpha_pred, y_st[0].x);
+        printf("INFO:    Iteration %d, backtrack %d, alpha = %f, x_st[0] = %f, y_st[0] = %f, x0_st[0] = %f, y0_st[0] = %f, y_dst[0] = %f\n", i,
+          backtrack_cnt, alpha_pred, x_st[0].x, y_st[0].x, x0_st[0].x, y0_st[0].x, y_dst[0].x);
+      }
+      
+      if ( timeon ) {
         time_start(&time);
       };
       int j = 0;
@@ -834,7 +965,9 @@ int myNesterov::DoNesterovOptimization(Timing::Timing &TimingInst) {
       int checkIter = INT_CONVERT(it->ovfl * 100);
       
       // do something
-      if(isTimingIter(checkIter)) {
+      // if ( isTimingIter(checkIter) ) {
+      if ( i % timingUpdateIter == 0 && i >= 400 ) {
+        printf("iter %d is timing iteration.\n", i);
         auto start = std::chrono::steady_clock::now();
         TimingInst.BuildSteiner(true);
         auto finish = std::chrono::steady_clock::now();
@@ -884,6 +1017,167 @@ int myNesterov::DoNesterovOptimization(Timing::Timing &TimingInst) {
   return -1;
 }
 
+int myNesterov::DoNesterovOptimization_3DIC(ot::Timer &timer) {
+  int i;
+  prec minPotn = PREC_MAX;
+  temp_iter = 0;
+  // int last_route_iter = -100;
+  // int post_filler_route = 1;
+
+  for ( i = 0; i < max_iter; i++ ) {
+
+    it = &iter_st[i + 1];
+    init_iter(it, i + 1);
+    FILLER_PLACE = 0;
+
+    // cout <<"postfiller = " <<post_filler <<endl;
+    // cout <<"isFirst_gp_opt = " <<isFirst_gp_opt <<endl;
+
+    if ( i < NUM_ITER_FILLER_PLACE ) {
+      FILLER_PLACE = 1;
+      post_filler = 0;
+      start_idx = moduleCNT;
+      end_idx = N;
+    }
+    else {
+      FILLER_PLACE = 0;
+      post_filler = 1;
+      start_idx = 0;
+      end_idx = N;
+
+      getCostFuncGradient3(y_dst, y_wdst, y_pdst, y_pdstl, N, cellLambdaArr);
+
+      get_lc(y_st, y_dst, z_st, z_dst, &it0, N);
+    }
+
+
+    it->lc = it0.lc;
+    alpha = it->alpha00 = it0.alpha00;
+    it->alpha00 = it0.alpha00 = alpha;
+
+    ab = a;
+    a = ( 1.0 + sqrt(4.0 * a * a + 1.0) ) * 0.5;
+    cof = ( ab - 1.0 ) / a;
+
+    alpha_pred = it->alpha00;
+    backtrack_cnt = 0;
+
+    // cout <<"alpha_pred: " <<alpha_pred <<endl;
+    // cout <<"cof: " <<cof <<endl;
+
+    // int cnt = 0;
+
+    while ( 1 ) {
+      backtrack_cnt++;
+
+      if ( gVerbose >= 2 ) {
+        // printf("INFO:    Iteration %d, backtrack %d, alpha = %f, y_st[0] = %f\n", i,
+        //   backtrack_cnt, alpha_pred, y_st[0].x);
+        printf("INFO:    Iteration %d, backtrack %d, alpha = %f, x_st[0] = %f, y_st[0] = %f, x0_st[0] = %f, y0_st[0] = %f, y_dst[0] = %f\n", i,
+          backtrack_cnt, alpha_pred, x_st[0].x, y_st[0].x, x0_st[0].x, y0_st[0].x, y_dst[0].x);
+      }
+
+      int j = 0;
+#pragma omp parallel default(none) private(j) shared(gcell_st)
+      {
+        FPOS u, v;
+        FPOS half_desize;
+#pragma omp for
+        for ( j = start_idx; j < end_idx; j++ ) {
+          FPOS half_densize = gcell_st[j].half_den_size;
+
+          u.x = y_st[j].x + alpha_pred * y_dst[j].x;
+          u.y = y_st[j].y + alpha_pred * y_dst[j].y;
+          // cout <<"dst = (" <<y_dst[j].x <<", " <<y_dst[j].y <<")"
+          // <<endl;
+
+          v.x = u.x + cof * ( u.x - x_st[j].x );
+          v.y = u.y + cof * ( u.y - x_st[j].y );
+
+          x0_st[j] = GetCoordiLayoutInside(u, half_densize);
+          // auto temp = y0_st[j];
+          y0_st[j] = GetCoordiLayoutInside(v, half_densize);
+          // if (temp.x == y0_st[j].x && temp.y == y0_st[j].y) ++cnt;
+        }
+      }
+
+      net_update(y0_st);
+
+      bin_update();
+
+      getCostFuncGradient3(y0_dst, y0_wdst, y0_pdst, y0_pdstl, N, cellLambdaArr);
+
+      get_lc(y_st, y_dst, y0_st, y0_dst, &it0, N);
+
+      alpha_new = it0.alpha00;
+
+      if ( alpha_new > alpha_pred * 0.95 || backtrack_cnt >= MAX_BKTRK_CNT ) {
+        alpha_pred = alpha_new;
+        it->alpha00 = alpha_new;
+        break;
+      }
+      else {
+        alpha_pred = alpha_new;
+      }
+    }
+
+    // update steiner point location
+    if ( isTiming && !FILLER_PLACE && i >= 100) {
+      UpdateSteinerPoint(timing_phi_cof, alpha);
+    }
+    
+
+    UpdateNesterovOptStatus();
+    UpdateNesterovIter(i + 1, it, &iter_st[i]);
+
+    // update steiner tree and timing gradient
+    if ( isTiming && !FILLER_PLACE) {
+      // do something
+      if ( i % timingUpdateIter == 0 && i >= 200 ) {
+        // timing_phi_cof = 10.f * std::pow(1.01, i / timingUpdateIter);
+        // ethmac: 10, sha3: 400*10^1.01
+        timing_phi_cof = 5000.f;
+        printf("[INFO] iter %d is timing iteration.\n", i);
+        PrintProcBegin("Steiner Tree Consturction");
+        ot::BuildSteiner(timer);
+        PrintProcEnd("Steiner Tree Consturction");
+        timer.update_timing();
+
+        
+
+        OT_LOGI("TNS: ", timer.report_tns_elw(ot::Split::MAX).value());
+        float wns = timer.report_wns(ot::Split::MAX).value();
+        OT_LOGI("WNS: ", wns);
+
+        auto wire_gradients = timer.get_wire_gradients();
+        // print wire_gradients
+        // for (const auto& [net_name, wire_gradient] : wire_gradients) {
+        //   printf("Net: %s\n", net_name.c_str());
+        //   for ( auto &[pin1, pin2, gradient] : wire_gradient ) {
+        //     printf("%s <-> %s = %f\n", pin1.c_str(), pin2.c_str(), gradient);
+        //   }
+        //   printf("\n");
+        // }
+        // exit(0);
+
+        UpdateTimingGrad(wire_gradients);
+      }
+    }
+
+    // Termination Condition 1
+    bool ovfl_met = true;
+    for ( int l = 0; l < numLayer; ++l ) {
+      if ( it->ovfl_3D[l] > overflowMin ) {
+        ovfl_met = false;
+      }
+    }
+    if ( ovfl_met && i > 10 ) {
+      return i;
+    }
+  }
+  return -1;
+}
+
 void myNesterov::malloc_free() {
   free(iter_st);
   free(x_st);
@@ -923,7 +1217,7 @@ void myNesterov::SummarizeNesterovOpt(int last_index) {
     mGP2D_tot_iter = last_index;
     mGP2D_opt_phi_cof = opt_phi_cof;
   }
-  else if(STAGE == cGP2D) {
+  else if(STAGE == cGP2D || STAGE == c3DIC) {
     cGP2D_iterCNT = last_index + 1;
     hpwl_cGP2D = it->tot_hpwl;
     PrintInfoInt("Nesterov: NumIters", cGP2D_iterCNT, 1);
@@ -987,6 +1281,7 @@ void getCostFuncGradient2(struct FPOS *dst, struct FPOS *wdst,
     FPOS wpre;
     FPOS charge_dpre;
     FPOS pre;
+    FPOS tgrad;
 
 #pragma omp for
     for(i = 0; i < N; i++) {
@@ -999,6 +1294,9 @@ void getCostFuncGradient2(struct FPOS *dst, struct FPOS *wdst,
       }
       else {
         wlen_grad(i, &wgrad);
+        if ( isTiming ) {
+          timing_grad(i, &tgrad);
+        }
         if(STAGE == mGP2D) {
           if(constraintDrivenCMD == false) {
             potn_grad_2D(i, &pgrad);
@@ -1012,7 +1310,7 @@ void getCostFuncGradient2(struct FPOS *dst, struct FPOS *wdst,
             //}
           }
         }
-        else if(STAGE == cGP2D) {
+        else if(STAGE == cGP2D || STAGE == c3DIC) {
           if(constraintDrivenCMD == false) {
             potn_grad_2D(i, &pgrad);
           }
@@ -1032,6 +1330,11 @@ void getCostFuncGradient2(struct FPOS *dst, struct FPOS *wdst,
 
       dst[i].x = wgrad.x + opt_phi_cof * pgrad.x;
       dst[i].y = wgrad.y + opt_phi_cof * pgrad.y;
+
+      if ( isTiming ) {
+        dst[i].x -= timing_phi_cof * tgrad.x;
+        dst[i].y -= timing_phi_cof * tgrad.y;
+      }
 
       if(lambda2CMD == true) {
         pdstl[i] = pgradl;
@@ -1171,7 +1474,7 @@ void getCostFuncGradient2_filler(struct FPOS *dst, struct FPOS *wdst,
         //}
       }
     }
-    else if(STAGE == cGP2D) {
+    else if(STAGE == cGP2D || STAGE == c3DIC) {
       if(constraintDrivenCMD == false)
         potn_grad_2D(i, &pgrad);
       else if(constraintDrivenCMD == true) {
@@ -1255,7 +1558,7 @@ void getCostFuncGradient2_filler_DEN_ONLY_PRECON(
         //}
       }
     }
-    else if(STAGE == cGP2D) {
+    else if(STAGE == cGP2D || STAGE == c3DIC) {
       if(constraintDrivenCMD == false)
         potn_grad_2D(i, &pgrad);
       else if(constraintDrivenCMD == true) {
@@ -1352,6 +1655,12 @@ void myNesterov::UpdateNesterovIter(int iter, struct ITER *it,
   it->grad = get_norm(y_dst, N, 2.0);
   it->potn = gsum_phi;
   it->ovfl = gsum_ovfl;
+  if ( is_3D ) {
+    for ( int l = 0; l < numLayer; ++l ) {
+      it->potn_3D[l] = gsum_phi_3D[l];
+      it->ovfl_3D[l] = gsum_ovfl_3D[l];
+    }
+  }
   it->dis00 = get_dis(z_st, y_st, N);
   it->wcof = get_wlen_cof(it->ovfl);
   wlen_cof = fp_mul(base_wcof, it->wcof);
@@ -1413,42 +1722,72 @@ void myNesterov::UpdateNesterovIter(int iter, struct ITER *it,
     it->tot_wwl = last_it->tot_wwl;      // lutong
     it->wlen.SetZero();
     it->tot_wlen = 0;
+    it->potn = gsum_phi;
+    it->ovfl = gsum_ovfl;
+    if ( is_3D ) {
+      for ( int l = 0; l < numLayer; ++l ) {
+        it->potn_3D[l] = gsum_phi_3D[l];
+        it->ovfl_3D[l] = gsum_ovfl_3D[l];
+      }
+    }
   }
 
-  if((iter == 1 || iter % 10 == 0) && (isPlot || plotCellCMD)) {
+  if ( ( iter == 1 || iter % 10 == 0 ) && ( isPlot || plotCellCMD ) ) {
     cell_update(x_st, N);
 
     // For circuit viewer
     //        SavePlot(string("Nesterov - Iter: " + std::to_string(iter)),
     //        true);
 
-    string modeStr =
-        (STAGE == cGP2D) ? "cGP2D" : (STAGE == mGP2D) ? "mGP2D" : "";
-    // For JPEG Saving
-    SaveCellPlotAsJPEG(string("Nesterov - Iter: " + std::to_string(iter)), true,
-                       string(dir_bnd) + string("/cell/" + modeStr + "_cell_") +
-                           intoFourDigit(iter));
-    SaveBinPlotAsJPEG(string("Nesterov - Iter: " + std::to_string(iter)),
-                      string(dir_bnd) + string("/bin/" + modeStr + "_bin_") +
-                          intoFourDigit(iter));
-    SaveArrowPlotAsJPEG(string("Nesterov - Iter: " + std::to_string(iter)),
-                        string(dir_bnd) +
-                            string("/arrow/" + modeStr + "_arrow_") +
-                            intoFourDigit(iter));
+    if ( is_3D ) {
+      SaveCellPlotAsJPEG_3DIC("iter" + std::to_string(iter), true,
+        string(dir_bnd) + "/cell");
+
+      SaveBinPlotAsJPEG_3DIC("iter" + std::to_string(iter),
+        string(dir_bnd) + "/bin");
+
+      SaveArrowPlotAsJPEG_3DIC("iter" + std::to_string(iter),
+        string(dir_bnd) + "/arrow");
+    }
+    else {
+
+      string modeStr =
+        ( STAGE == cGP2D ) ? "cGP2D" : ( STAGE == mGP2D ) ? "mGP2D" : "";
+      // For JPEG Saving
+      SaveCellPlotAsJPEG(string("Nesterov - Iter: " + std::to_string(iter)), true,
+        string(dir_bnd) + string("/cell/" + modeStr + "_cell_") +
+        intoFourDigit(iter));
+      SaveBinPlotAsJPEG(string("Nesterov - Iter: " + std::to_string(iter)),
+        string(dir_bnd) + string("/bin/" + modeStr + "_bin_") +
+        intoFourDigit(iter));
+      SaveArrowPlotAsJPEG(string("Nesterov - Iter: " + std::to_string(iter)),
+        string(dir_bnd) +
+        string("/arrow/" + modeStr + "_arrow_") +
+        intoFourDigit(iter));
+
+    }
   }
 
   time_calc(last_it->cpu_curr, &it->cpu_curr, &it->cpu_cost);
-  PrintNesterovOptStatus(iter);
+  if ( is_3D ) {
+    PrintNesterovOptStatus_3DIC(iter);
+  }
+  else {
+    PrintNesterovOptStatus(iter);
+  }
   fflush(stdout);
 }
 
 void get_lc(struct FPOS *y_st, struct FPOS *y_dst, struct FPOS *z_st,
             struct FPOS *z_dst, struct ITER *iter, int N) {
-  if(FILLER_PLACE)
+  if ( FILLER_PLACE ) {
     get_lc3_filler(y_st + moduleCNT, y_dst + moduleCNT, z_st + moduleCNT,
-                   z_dst + moduleCNT, iter, gfiller_cnt);
-  else
+      z_dst + moduleCNT, iter, gfiller_cnt);
+    // get_lc3(y_st, y_dst, z_st, z_dst, iter, N);
+  }
+  else {
     get_lc3(y_st, y_dst, z_st, z_dst, iter, N);
+  }
 }
 
 void get_lc3(struct FPOS *y_st, struct FPOS *y_dst, struct FPOS *z_st,
@@ -1463,10 +1802,11 @@ void get_lc3(struct FPOS *y_st, struct FPOS *y_dst, struct FPOS *z_st,
 
   lc = yz_dnm / yz_dis;
   // cout <<"N: " <<N <<endl;
-  // cout <<"yz_dnm/yz_dis: " <<yz_dnm <<", " <<yz_dis <<endl;
+  // cout << "yz_dnm/yz_dis: " << yz_dnm << " / " << yz_dis << " = " << lc << endl;
   alpha = 1.0 / lc;
   iter->lc = lc;
-  // if (alpha < 1) alpha = 1;
+  // if ( alpha < 0.1 ) alpha = 0.1;
+  // if ( alpha > 20 ) alpha = 20;
   iter->alpha00 = alpha;
 }
 
@@ -1481,7 +1821,10 @@ void get_lc3_filler(struct FPOS *y_st, struct FPOS *y_dst, struct FPOS *z_st,
   yz_dnm = get_dis(y_dst, z_dst, N);
 
   lc = yz_dnm / yz_dis;
+  // std::cout << "yz_dnm/yz_dis: " << yz_dnm << " / " << yz_dis << " = " << lc << endl;
   alpha = 1.0 / lc;
+  // if ( alpha < 0.1 ) alpha = 0.1;
+  // if ( alpha > 20 ) alpha = 20;
   iter->lc = lc;
   iter->alpha00 = alpha;
 }
@@ -1503,7 +1846,7 @@ void myNesterov::InitializationCostFunctionGradient(prec *sum_wgrad0,
     cell = &gcell_st[i];
     wlen_grad(i, &wgrad);
     
-    if(STAGE == cGP2D) {
+    if(STAGE == cGP2D || STAGE == c3DIC) {
       if(cell->flg == Macro) {
         wgrad.SetZero();
         pgrad.SetZero();
@@ -1660,3 +2003,31 @@ void myNesterov::PrintNesterovOptStatus(int iter) {
   }
 }
 
+
+void myNesterov::PrintNesterovOptStatus_3DIC(int iter) {
+  if ( gVerbose <= 1 ) {
+    if ( iter % 10 == 0 ) {
+      cout << "[INFO] Nesterov: " << iter << " alpha: " << alpha_pred << " gamma: " << 1. / wlen_cof.x
+        << " OverFlow[0]: " << it->ovfl_3D[0] << " OverFlow[1]: " << it->ovfl_3D[1] << " OverFlow[2]: " << it->ovfl_3D[2]
+        << " ScaledHpwl: " << it->tot_hpwl << endl;
+    }
+  }
+  else if ( gVerbose >= 2 ) {
+    printf("\n");
+    printf("ITER: %d\n", iter);
+    printf("    HPWL = %.6f\n", it->tot_hpwl);
+
+    printf("    OVFL[0] = %.6f\n", it->ovfl_3D[0]);
+    printf("    OVFL[1] = %.6f\n", it->ovfl_3D[1]);
+    printf("    OVFL[2] = %.6f\n", it->ovfl_3D[2]);
+    printf("    HPWL = (%.6f, %.6f)\n", it->hpwl.x, it->hpwl.y);
+    printf("    POTN[0] = %.6E\n", it->potn_3D[0]);
+    printf("    POTN[1] = %.6E\n", it->potn_3D[1]);
+    printf("    POTN[2] = %.6E\n", it->potn_3D[2]);
+    printf("    PHIC = %.6E\n", opt_phi_cof);
+
+    printf("    GRAD = %.6E\n", it->grad);
+    printf("    NuBT = %d\n", backtrack_cnt);
+    printf("    CPU  = %.6f\n", it->cpu_cost);
+  }
+}

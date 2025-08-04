@@ -269,7 +269,18 @@ void Timing::ExecuteStaFirst(string topCellName, string verilogName,
   // find_timing -full_update (true->full, false-> incremental)
   UpdateTimingSta();
 
+
+  for ( int i = 0; i < _netCnt; i++ ) {
+    netInstance[i].timingWeight = 1.;
+  }
+  for ( int i = 0; i < _netCnt; i++ ) {
+    _nets[i].timingWeight = 1.;
+  }
+
   UpdateNetWeightSta();
+
+  // cout << "clk name: " << _sta->findClock("clk")->period() << endl;
+  // printf("clk name: %e\n", _sta->findClock("clk")->period());
 
   // WNS / TNS report
   const MinMax* cnst_min_max;
@@ -280,8 +291,10 @@ void Timing::ExecuteStaFirst(string topCellName, string verilogName,
   _sta->worstSlack(cnst_min_max, wns, worstVertex);
 
   Slack tns = _sta->totalNegativeSlack(cnst_min_max);
-  PrintInfoPrecSignificant("Timing: WNS", wns);
-  PrintInfoPrecSignificant("Timing: TNS", tns);
+  // PrintInfoPrecSignificant("Timing: WNS", wns);
+  // PrintInfoPrecSignificant("Timing: TNS", tns);
+  printf("[INFO] Timing: WNS = %f ns\n", wns * 1e09);
+  printf("[INFO] Timing: TNS = %f ns\n", tns * 1e09);
   globalWns = wns;
   globalTns = tns;
 
@@ -295,9 +308,9 @@ void Timing::ExecuteStaFirst(string topCellName, string verilogName,
 }
 
 void Timing::ExecuteStaLater() {
-  for(int i = 0; i < _netCnt; i++) {
-    _nets[i].timingWeight = 0;
-  }
+  // for(int i = 0; i < _netCnt; i++) {
+  //   _nets[i].timingWeight = 0;
+  // }
   // _sta->parasitics()->deleteParasitics();
   // _sta->network()->clear();
 
@@ -341,8 +354,10 @@ void Timing::ExecuteStaLater() {
   _sta->worstSlack(cnst_min_max, wns, worstVertex);
   Slack tns = _sta->totalNegativeSlack(cnst_min_max);
   
-  PrintInfoPrecSignificant("Timing: WNS", wns);
-  PrintInfoPrecSignificant("Timing: TNS", tns);
+  // PrintInfoPrecSignificant("Timing: WNS", wns * 1e09);
+  // PrintInfoPrecSignificant("Timing: TNS", tns * 1e09);
+  printf("[INFO] Timing: WNS = %f ns\n", wns * 1e09);
+  printf("[INFO] Timing: TNS = %f ns\n", tns * 1e09);
   globalWns = wns;
   globalTns = tns;
 }
@@ -554,35 +569,46 @@ void Timing::UpdateNetWeightSta() {
     netSlack = (fabs(netSlack - MinMax::min()->initValue()) <= FLT_EPSILON) ? 
       0 : netSlack;
 
-    float criticality = (wns>0)? 0 : max(0.0f, netSlack / wns);
+    // float criticality = (wns>0)? 0 : max(0.0f, netSlack / wns);
+    // * DREAMPLACE 4.0 net weighting scheme
+    if ( wns < 0 ) {
+      float nc = ( netSlack < 0 ) ? std::max(0.f, netSlack / wns) : 0;
+      // Decay the criticality value of the current net.
+      netInstance[i].net_criticality = std::pow(1 + netInstance[i].net_criticality, netWeightDecay) *
+        std::pow(1 + nc, 1 - netWeightDecay) - 1;
+    }
 
 //    cout << "diff: " << fabs(netSlack - MinMax::min()->initValue()) << endl;
 //    cout << curNet->Name() << " netSlack: " << netSlack << " crit: " << criticality;
 
     // get normalized resistor
-    float netRes = GetMaxResistor(_sta, curStaNet);
-    float normRes = (netRes - minRes)/(maxRes - minRes);
+    // float netRes = GetMaxResistor(_sta, curStaNet);
+    // float normRes = (netRes - minRes)/(maxRes - minRes);
 
-    int netDegree = max(2, netInstance[i].pinCNTinObject);
-    float netWeight = 1 + normRes * (1 + criticality) / (netDegree - 1);
+    // int netDegree = max(2, netInstance[i].pinCNTinObject);
+    // float netWeight = 1 + normRes * (1 + criticality) / (netDegree - 1);
 
 
     // TODO
     // following two lines are temporal magic codes at this moment.
     // Need to be replaced/tuned later
-    netWeight = (netWeight >= 1.9)? 1.9 : netWeight;
-    netWeight = (netSlack < 0)? 1.8 : 1;
+    // netWeight = (netWeight >= 1.9)? 1.9 : netWeight;
+    // netWeight = (netSlack < 0)? 1.8 : 1;
 
 //    cout << " normRes: " << normRes << " deg: " << netDegree 
 //      << " nw: " << netWeight << endl;
 
     // update timingWeight 
-    netInstance[i].timingWeight = netWeight;
+    netInstance[i].timingWeight *= ( 1 + netInstance[i].net_criticality );
+    if ( netInstance[i].timingWeight > maxNetWeight ) {
+      netInstance[i].timingWeight = maxNetWeight;
+    }
 
     // update netWeightMin / netWeightMax    
-    netWeightMin = (netWeightMin < netWeight) ? netWeightMin : netWeight;
-    netWeightMax = (netWeightMax > netWeight) ? netWeightMax : netWeight;
+    netWeightMin = ( netWeightMin < netInstance[i].timingWeight ) ? netWeightMin : netInstance[i].timingWeight;
+    netWeightMax = ( netWeightMax > netInstance[i].timingWeight ) ? netWeightMax : netInstance[i].timingWeight;
   }
+  printf("[INFO] Timing: netWeightMax = %f\n", netWeightMax);
 }
 
 }

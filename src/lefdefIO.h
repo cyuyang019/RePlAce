@@ -84,6 +84,7 @@
 #include <defiAlias.hpp>
 
 #include "replace_private.h"
+#include "cadb23IO.h"
 #define INIT_STR "!@#!@#"
 
 using std::cout;
@@ -251,6 +252,8 @@ REPLACE_NAMESPACE_CLOSE
 
 void ParseInput();
 void ParseLefDef();
+
+void Initialize3DIC();
 
 // required for timing
 void SetVerilogTopModule();

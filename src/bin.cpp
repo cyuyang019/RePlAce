@@ -79,6 +79,7 @@ FPOS inv_bin_stp;
 FPOS half_bin_stp;
 FPOS bin_stp_mGP2D;
 FPOS bin_stp_cGP2D;
+FPOS bin_stp_3DIC;
 POS max_bin;
 
 static BIN **bin_mat_st;
@@ -258,11 +259,14 @@ void bin_init_2D(int STAGE) {
     prec avg_modu_area = 1.0 * tier->modu_area / tier->modu_cnt;
     prec ideal_bin_area = avg_modu_area / target_cell_den;
     int ideal_bin_cnt = INT_CONVERT(tier->area / ideal_bin_area);
+    // printf("mod area %f, mod cnt %ld\n", tier->modu_area, tier->modu_cnt);
+    // printf("avg_modu_area %f\n", avg_modu_area);
+    // printf("ideal_bin_area %f\n", ideal_bin_area);
+    // printf("ideal_bin_cnt %d\n", ideal_bin_cnt);
 
     bool isUpdate = false;
     for(int i = 1; i <= 10; i++) {
-      if((2 << i) * (2 << i) <= ideal_bin_cnt &&
-         (2 << (i + 1)) * (2 << (i + 1)) > ideal_bin_cnt) {
+      if((2 << i) * (2 << i) > ideal_bin_cnt) {
         tier->dim_bin.x = tier->dim_bin.y = 2 << i;
         isUpdate = true;
         break;
@@ -459,6 +463,126 @@ void bin_init_2D(int STAGE) {
   //        cout << bp->p.x << ", " << bp->p.y << ", " << bp->p.z << " :" <<
   //        bp->term_area << endl;
   //    }
+}
+
+void bin_init_3DIC() {
+  dim_bin_3DIC.x = dim_bin_3DIC.y = 0;
+
+  // Setup bin w.r.t top die
+  for ( int z = 0; z < numLayer; z++ ) {
+    TIER *tier = &tier_st[z];
+    prec avg_modu_area = tier->modu_area / tier->modu_cnt;
+    prec ideal_bin_area = avg_modu_area / target_cell_den;
+    int ideal_bin_cnt = INT_CONVERT(tier->area / ideal_bin_area);
+
+    bool isUpdate = false;
+    for ( int i = 1; i <= 10; i++ ) {
+      if ( ( 2 << i ) * ( 2 << i ) > ideal_bin_cnt ) {
+        tier->dim_bin.x = tier->dim_bin.y = 2 << i;
+        isUpdate = true;
+        break;
+      }
+    }
+
+    if ( !isUpdate ) {
+      tier->dim_bin.x = tier->dim_bin.y = 1024;
+    }
+
+    if ( dim_bin_3DIC.x < tier->dim_bin.x ) {
+      dim_bin_3DIC.x = tier->dim_bin.x;
+    }
+    if ( dim_bin_3DIC.y < tier->dim_bin.y ) {
+      dim_bin_3DIC.y = tier->dim_bin.y;
+    } 
+  }
+
+  if ( isBinSet ) {
+    dim_bin_3DIC.x = dim_bin.x;
+    dim_bin_3DIC.y = dim_bin.y;
+  }
+
+  bin_stp_3DIC.x = place.cnt.x / ( prec ) dim_bin_3DIC.x;
+  bin_stp_3DIC.y = place.cnt.y / ( prec ) dim_bin_3DIC.y;
+
+  printf("[INFO] dim_bin_3DIC.(x,y) = (%d, %d)\n", dim_bin_3DIC.x, dim_bin_3DIC.y);
+
+
+  bin_mat_st = ( BIN ** ) malloc(sizeof(BIN *) * numLayer);
+  for ( int z = 0; z < numLayer; z++ ) {
+    TIER *tier = &tier_st[z];
+
+    tier->dim_bin = dim_bin_3DIC;
+
+    tier->tot_bin_cnt = tier->dim_bin.x * tier->dim_bin.y;
+
+    tier->bin_stp.x = tier->size.x / tier->dim_bin.x;
+    tier->bin_stp.y = tier->size.y / tier->dim_bin.y;
+
+    tier->half_bin_stp.x = 0.5 * tier->bin_stp.x;
+    tier->half_bin_stp.y = 0.5 * tier->bin_stp.y;
+
+    tier->inv_bin_stp.x = 1.0 / tier->bin_stp.x;
+    tier->inv_bin_stp.y = 1.0 / tier->bin_stp.y;
+
+    tier->bin_off.SetZero();
+    tier->bin_org.x = tier->pmin.x - tier->bin_off.x;
+    tier->bin_org.y = tier->pmin.y - tier->bin_off.y;
+
+    tier->bin_area = tier->bin_stp.x * tier->bin_stp.y;
+
+    tier->inv_bin_area = 1.0 / tier->bin_area;
+    tier->tot_bin_area = tier->bin_area * tier->tot_bin_cnt;
+
+    bin_mat_st[z] = ( BIN * ) malloc(sizeof(BIN) * tier->tot_bin_cnt);
+    tier->bin_mat = bin_mat_st[z];
+
+    // for each allocated bin_mat_st..
+    for ( int i = 0; i < tier->tot_bin_cnt; i++ ) {
+      POS p(i / tier->dim_bin.y, i % tier->dim_bin.y);
+
+      BIN *bp = &tier->bin_mat[i];
+
+      bp->den = 0;
+      bp->e.x = bp->e.y = 0;
+
+      bp->phi = 0;
+      bp->pmin.x = tier->bin_org.x + ( prec ) p.x * tier->bin_stp.x;
+      bp->pmin.y = tier->bin_org.y + ( prec ) p.y * tier->bin_stp.y;
+
+      bp->pmax.x = bp->pmin.x + tier->bin_stp.x;
+      bp->pmax.y = bp->pmin.y + tier->bin_stp.y;
+
+      bp->center.x = bp->pmin.x + 0.5 * tier->bin_stp.x;
+      bp->center.y = bp->pmin.y + 0.5 * tier->bin_stp.y;
+
+      bp->p = p;
+
+      bp->cell_area = 0;
+      bp->cell_area2 = 0;
+
+      bp->term_area = 0;
+      bp->flg = 0;
+
+      bp->virt_area = 0;
+
+      prec plArea = 0;
+
+      for ( int k = 0; k < place_st_cnt; k++ ) {
+        PLACE *pl = &place_st[k];
+        plArea += pGetCommonAreaXY(pl->org, pl->end, bp->pmin, bp->pmax);
+      }
+
+      bp->virt_area = ( tier->bin_area - plArea ) * global_macro_area_scale;
+    }
+  }
+
+  // check
+  // TIER* tier = &tier_st[0];
+  // for(int i=0; i<tier->tot_bin_cnt; i++) {
+  //     BIN* bp = &tier->bin_mat[i];
+  //     cout << bp->p.x << ", " << bp->p.y << " :" <<
+  //     bp->center.x << ", " << bp->center.y << endl;
+  // }
 }
 
 // update bin_mat_st's term_area variable
@@ -789,10 +913,15 @@ FPOS valid_coor4(FPOS center, FPOS obj_size) {
 }
 
 void bin_update() {
-  if(STAGE == cGP2D)
+  if ( STAGE == cGP2D ) {
     return bin_update7_cGP2D();
-  else if(STAGE == mGP2D)
+  }
+  else if ( STAGE == mGP2D ) {
     return bin_update7_mGP2D();
+  }
+  else if ( STAGE == c3DIC ) {
+    return bin_update7_3DIC();
+  }
 }
 
 /*
@@ -1049,6 +1178,129 @@ void bin_update7_cGP2D() {
 
   gsum_ovfl = gsum_ovf_area / total_modu_area;
   // cout << "gsumovfl: " << gsum_ovfl << endl;
+}
+
+// 3DIC
+void bin_update7_3DIC() {
+  BIN *bp = nullptr;
+
+  // Container initialization
+  delete[] gsum_ovf_area_3D;
+  delete[] gsum_ovfl_3D;
+  delete[] gsum_phi_3D;
+  gsum_ovf_area_3D = new prec[numLayer];
+  gsum_ovfl_3D = new prec[numLayer];
+  gsum_phi_3D = new prec[numLayer];
+
+  for ( int l = 0; l < numLayer; ++l ) {
+    gsum_ovf_area_3D[l] = 0.;
+    gsum_ovfl_3D[l] = 0.;
+    gsum_phi_3D[l] = 0.;
+
+    TIER *tier = &tier_st[l];
+    bool timeon = false;
+    double time = 0.0f;
+    
+    omp_set_num_threads(numThread);
+    int i = 0;
+    
+    if ( timeon ) {
+      time_start(&time);
+    }
+    
+    #pragma omp parallel default(none) shared(tier) private(i)
+    {
+      #pragma omp for
+      for ( i = 0; i < tier->tot_bin_cnt; i++ ) {
+        BIN *bp = &tier->bin_mat[i];
+        bp->cell_area = 0;
+        bp->cell_area2 = 0;
+      }
+    }
+    if ( timeon ) {
+      time_end(&time);
+      cout << "initialize: " << time << endl;
+      time_start(&time);
+    }
+    
+    for ( i = 0; i < tier->cell_cnt; i++ ) {
+      den_comp_2d_cGP2D(tier->cell_st[i], tier);
+    }
+    
+    if ( timeon ) {
+      time_end(&time);
+      cout << "fill cell_area: " << time << endl;
+      time_start(&time);
+    }
+    
+    omp_set_num_threads(numThread);
+    #pragma omp parallel default(none) shared(tier) private(i)
+    {
+      #pragma omp for
+      for ( i = 0; i < tier->tot_bin_cnt; i++ ) {
+        BIN *bp = &tier->bin_mat[i];
+        
+        prec area_num2 = bp->cell_area;
+        prec area_num = area_num2 + bp->cell_area2;
+        
+        bp->den = area_num * tier->inv_bin_area;
+        bp->den2 = area_num2 * tier->inv_bin_area;
+        
+        copy_den_to_fft_2D(bp->den, bp->p);
+      }
+    }
+    if ( timeon ) {
+      time_end(&time);
+      cout << "bin 1st update: " << time << endl;
+      time_start(&time);
+    }
+    
+    charge_fft_call(0);
+    if ( timeon ) {
+      time_end(&time);
+      cout << "charge_fft_call: " << time << endl;
+      time_start(&time);
+    }
+    
+    prec sum_ovf_area = 0;
+    
+    for ( i = 0; i < tier->tot_bin_cnt; i++ ) {
+      bp = &tier->bin_mat[i];
+      
+      copy_e_from_fft_2D(&( bp->e ), bp->p);
+      copy_phi_from_fft_2D(&( bp->phi ), bp->p);
+      
+      gsum_phi_3D[l] += bp->phi * bp->cell_area + bp->phi * bp->cell_area2;
+      
+      sum_ovf_area += max(( prec ) 0.0, bp->den2 - target_cell_den) * tier->bin_area;
+    }
+    
+    if ( timeon ) {
+      time_end(&time);
+      cout << "bin final loop: " << time << endl;
+    }
+    
+    // cout << "sum_ovf_area: " << sum_ovf_area << endl;
+    
+    tier->sum_ovf = sum_ovf_area / tier->modu_area;
+    gsum_ovf_area_3D[l] += sum_ovf_area;
+    // cout << "gsum_ovf_area: " << gsum_ovf_area_3D[l] << endl;
+    // cout << "total_modu_area: " << total_modu_area_3D[l] << endl;
+    
+    gsum_ovfl_3D[l] = gsum_ovf_area_3D[l] / total_modu_area_3D[l];
+    // cout << "gsumovfl " << l << ": " << gsum_ovfl_3D[l] << endl;
+  }
+
+  gsum_ovf_area = gsum_ovf_area_3D[0];
+  gsum_ovfl = gsum_ovfl_3D[0];
+  gsum_phi = gsum_phi_3D[0];
+
+  for ( int l = 1; l < numLayer; ++l ) {
+    gsum_ovf_area = std::max(gsum_ovf_area, gsum_ovf_area_3D[l]);
+    gsum_ovfl = std::max(gsum_ovfl, gsum_ovfl_3D[l]);
+    gsum_phi = std::max(gsum_phi, gsum_phi_3D[l]);
+  }
+
 }
 
 void get_term_den(prec *den) {

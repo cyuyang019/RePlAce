@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.1)
 
 project(RePlAce)
 
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
@@ -36,11 +36,15 @@ set(CIMG_HOME
 set(EIGEN_HOME
   ${PROJECT_SOURCE_DIR}/module/eigen-git-mirror 
 )
+set(OPENTIMER_HOME
+  ${PROJECT_SOURCE_DIR}/module/OpenTimer
+)
 
 add_subdirectory(${DEFLIB_HOME})
 add_subdirectory(${LEFLIB_HOME})
 add_subdirectory(${FLUTE_HOME})
 add_subdirectory(${OPENSTA_HOME})
+add_subdirectory(${OPENTIMER_HOME})
 
 set(ENV{TYPE_CALL} library)
 
@@ -97,6 +101,8 @@ set (REPLACE_SRC
   src/replace_private.cpp
   src/replace_wrap.cpp
   src/cadb23IO.cpp
+  src/cellswap.cpp
+  src/timingOT.cpp
   )
 
 
@@ -120,6 +126,8 @@ set (REPLACE_HEADER
   src/wlen.h
   src/util.h
   src/cadb23IO.h
+  src/cellswap.h
+  src/timingOT.h
 )
 
 set (REPLACE_SWIG_FILES
@@ -161,6 +169,7 @@ include_directories(
   ${OPENSTA_HOME}/util
   ${OPENSTA_HOME}/verilog
 
+  ${OPENTIMER_HOME}
 )
 
 ############################################################
@@ -197,6 +206,10 @@ add_dependencies( replace lef )
 #add_dependencies( replacelib def )
 #add_dependencies( replacelib lef )
 
+target_include_directories(replace PUBLIC
+  ${OPENTIMER_HOME}/ot
+)
+
 target_link_libraries( replace
   PUBLIC
   OpenSTA
@@ -209,6 +222,7 @@ target_link_libraries( replace
   lefzlib
   clef
   clefzlib
+  OpenTimer
 
   ${ZLIB_LIBRARIES}
   ${X11_LIBRARIES}

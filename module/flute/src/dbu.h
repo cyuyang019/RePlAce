@@ -29,7 +29,7 @@ using std::ostream;
 
 // -----------------------------------------------------------------------------
 
-typedef std::int64_t DBU;
+typedef long long DBU;
 //typedef float DBU;
 typedef double FloatingPointDBU;
 

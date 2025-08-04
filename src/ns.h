@@ -44,6 +44,7 @@
 #include "replace_private.h"
 #include "opt.h"
 #include "timing.h"
+#include "timingOT.h"
 
 class myNesterov {
  private:
@@ -114,6 +115,7 @@ class myNesterov {
   void InitializationIter(void);
   void InitializationCostFunctionGradient(prec *, prec *);
   int DoNesterovOptimization(Timing::Timing &TimingInst);
+  int DoNesterovOptimization_3DIC(ot::Timer &timer);
   void malloc_free(void);
   void SummarizeNesterovOpt(int last_index);
   void UpdateNesterovOptStatus(void);
@@ -125,9 +127,11 @@ class myNesterov {
   void UpdateBeta(struct ITER *it);
 
   void PrintNesterovOptStatus(int iter);
+  void PrintNesterovOptStatus_3DIC(int iter);
 
  public:
   void nesterov_opt(void);
+  void nesterov_opt_3DIC(ot::Timer &timer);
 };
 
 #endif

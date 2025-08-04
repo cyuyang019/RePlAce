@@ -44,8 +44,8 @@
 #include "replace_private.h"
 #include "opt.h"
 
-enum { NoneWpre, PcntWpre, WlenWpre };
-#define WLEN_PRE /* NoneWpre */ PcntWpre /* WlenWpre */
+enum { NoneWpre, PcntWpre, WlenWpre, TDWpre };
+#define WLEN_PRE /* NoneWpre */ PcntWpre /* WlenWpre */ /* TDWpre */
 
 extern int wcof_flg;
 extern prec hpwl_mGP3D;
@@ -90,28 +90,7 @@ inline void get_net_wlen_grad_wa(FPOS obj, NET *net, PIN *pin, FPOS *grad);
 
 void initCustomNetWeight(std::string netWeightFile);
 
-inline void wlen_pre(int cell_idx, FPOS *wpre) {
-  wpre->x = wpre->y = 0;
-
-#ifdef NO_WLEN
-  return;
-#endif
-
-  CELL *cell = &gcell_st[cell_idx];
-
-  switch(WLEN_PRE) {
-    case NoneWpre:
-      wpre->x = wpre->y = 0;
-      break;
-
-    case PcntWpre:
-      wpre->x = wpre->y = (prec)(cell->pinCNTinObject);
-      break;
-  }
-
-  wpre->x *= gp_wlen_weight.x /* / 2000.0 */;
-  wpre->y *= gp_wlen_weight.y /* / 2000.0 */;
-}
+void wlen_pre(int cell_idx, FPOS *wpre);
 
 void wlen_grad2(int cell_idx, FPOS *grad2);
 void wlen_grad2_lse(int cell_idx, FPOS *grad2);

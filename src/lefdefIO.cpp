@@ -49,7 +49,6 @@
 #include "replace_private.h"
 #include "lefdefIO.h"
 #include "bookShelfIO.h"
-#include "cadb23IO.h"
 
 #include "timing.h"
 #include "timingSta.h"
@@ -279,7 +278,14 @@ static vector< string > clockNetsVerilog;
 
 // from main.cpp
 void ParseInput() {
-  if(auxCMD == "" && lefStor.size() != 0 && defName != "") {
+  if ( is_3D ) {
+    inputMode = InputMode::cadb23;
+    cadb23::ParseCADB23_I(cadbinName);
+    if ( cadboutName != "" ) {
+      cadb23::ParseCADB23_O(cadboutName);
+    }
+  }
+  else if ( auxCMD == "" && lefStor.size() != 0 && defName != "" ) {
     inputMode = InputMode::lefdef;
     ParseLefDef();
   }
@@ -287,16 +293,96 @@ void ParseInput() {
     inputMode = InputMode::bookshelf;
     ParseBookShelf();
   }
-  else if ( auxCMD == "" && lefStor.size() == 0 && defName == "" && cadbinName != "") {
-    inputMode = InputMode::cadb23;
-    cadb23_io::ParseCADB23_I(cadbinName);
-    if ( cadboutName != "" ) {
-      cadb23_io::ParseCADB23_O(cadboutName);
-    }
-  }
 
   if(verilogName != "") {
     SetVerilogTopModule();
+  }
+}
+
+void Initialize3DIC() {
+  // Initialize parameters
+  SetUnitX(1.f);
+  SetUnitY(1.f);
+  SetDefDbu(1.f);
+
+  // Initialize Place
+  place_st = new PLACE;
+  place_st_cnt = 1;
+
+  place.org.SetZero();
+  place.end.Set(cadb23::DieWidth, cadb23::DieHeight);
+  place_st->org.SetZero();
+  place_st->end.Set(cadb23::DieWidth, cadb23::DieHeight);
+
+  gmin = place.org;
+  gmax = place.end;
+
+  PrintInfoPrecPair("GlobalAreaLxLy", gmin.x, gmin.y);
+  PrintInfoPrecPair("GlobalAreaUxUy", gmax.x, gmax.y);
+
+  PrintInfoPrecPair("PlaceAreaLxLy", place.org.x, place.org.y);
+  PrintInfoPrecPair("PlaceAreaUxUy", place.end.x, place.end.y);
+
+  place.cnt.x = place.end.x - place.org.x;
+  place.cnt.y = place.end.y - place.org.y;
+  place_st->cnt.x = place_st->end.x - place_st->org.x;
+  place_st->cnt.y = place_st->end.y - place_st->org.y;
+
+  place.center.x = 0.5 * ( place.org.x + place.end.x );
+  place.center.y = 0.5 * ( place.org.y + place.end.y );
+  place_st->center.x = 0.5 * ( place_st->org.x + place_st->end.x );
+  place_st->center.y = 0.5 * ( place_st->org.y + place_st->end.y );
+
+  place.area = place.cnt.x * place.cnt.y;
+  place_st->area = place_st->cnt.x * place_st->cnt.y;
+
+  total_PL_area = place.area;
+
+  // Initialize tiers
+  tier_st = new TIER[numLayer];
+  TIER *tier = nullptr;
+  prec pl_area = 0;
+  struct PLACE *pl = nullptr;
+
+  for ( int i = 0; i < numLayer; i++ ) {
+    tier = &tier_st[i];
+    tier->term_cnt = 0;
+
+    tier->term_st = nullptr;
+
+    tier->modu_cnt = 0;
+    tier->modu_st = nullptr;
+    tier->mac_cnt = 0;
+    tier->mac_st = nullptr;
+    tier->cell_cnt = 0;
+    tier->cell_st = nullptr;
+
+    tier->term_area = 0;
+    tier->virt_area = 0;
+    tier->modu_area = 0;
+    tier->filler_area = 0;
+    tier->pl_area = 0;
+    tier->temp_mac_area = 0;
+    tier->max_mac = nullptr;
+
+    tier->pmin.SetZero();
+    tier->pmax.Set(cadb23::DieWidth, cadb23::DieHeight);
+
+    tier->size.x = tier->pmax.x - tier->pmin.x;
+    tier->size.y = tier->pmax.y - tier->pmin.y;
+
+    tier->center.x = ( tier->pmin.x + tier->pmax.x ) * 0.5;
+    tier->center.y = ( tier->pmin.y + tier->pmax.y ) * 0.5;
+
+    tier->area = tier->size.x * tier->size.y;
+
+    for ( int j = 0; j < place_st_cnt; j++ ) {
+      pl = &place_st[j];
+      pl_area = pGetCommonAreaXY(pl->org, pl->end, tier->pmin, tier->pmax);
+      tier->pl_area += pl_area;
+    }
+    tier->virt_area = tier->area - tier->pl_area;
+    tier->ws_area = tier->area - tier->virt_area;
   }
 }
 

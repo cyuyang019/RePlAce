@@ -61,6 +61,10 @@
 #include "plot.h"
 #include "wlen.h"
 #include "timing.h"
+#include "timingOT.h"
+#include "cellswap.h"
+
+#include <ot/timer/timer.hpp>
 
 #include <tcl.h>
 
@@ -82,6 +86,9 @@ prec netWeightBound;
 prec netWeightScale;
 bool netWeightApply;
 
+prec maxNetWeight;
+prec netWeightDecay;
+
 prec capPerMicron;
 prec resPerMicron;
 
@@ -97,6 +104,7 @@ PIN *pinInstance;
 MODULE *moduleInstance;
 int pinCNT;
 int moduleCNT;
+int *moduleCNT_3D;
 
 string globalRouterPosition;
 string globalRouterSetPosition;
@@ -128,6 +136,7 @@ int gVerbose;
 int STAGE;
 int placementStdcellCNT;
 int gfiller_cnt;
+int *gfiller_cnt_3D;
 int placementMacroCNT;
 int msh_yz;
 int INPUT_FLG;
@@ -216,26 +225,36 @@ prec SITE_SPA;
 
 prec layout_area;
 prec total_std_area;
+prec *total_std_area_3D;
 prec total_std_den;
+prec *total_std_den_3D;
 prec total_modu_area;
+prec *total_modu_area_3D;
 prec inv_total_modu_area;
+prec *inv_total_modu_area_3D;
 prec total_cell_area;
+prec *total_cell_area_3D;
 prec curr_cell_area;  // lutong
 prec total_term_area;
 prec total_move_available_area;
 prec total_filler_area;
+prec *total_filler_area_3D;
 prec total_PL_area;
 prec total_termPL_area;  // mgwoo
 prec total_WS_area;      // mgwoo
 prec curr_WS_area;       // lutong
 prec filler_area;
+prec *filler_area_3D;
 prec target_cell_den;
 prec target_cell_den_orig;  // lutong
 prec total_macro_area;
 prec grad_stp;
 prec gsum_phi;
+prec *gsum_phi_3D;
 prec gsum_ovfl;
+prec *gsum_ovfl_3D;
 prec gsum_ovf_area;
+prec *gsum_ovf_area_3D;
 prec overflowMin;
 prec mGP3D_opt_phi_cof;
 prec mGP2D_opt_phi_cof;
@@ -289,6 +308,7 @@ PLACE place_backup;
 FPOS term_pmax;
 FPOS term_pmin;
 FPOS filler_size;
+FPOS *filler_size_3D;
 POS n1p;
 POS msh;
 FPOS gmin;
@@ -304,21 +324,26 @@ vector< SHAPE > shapeStor;
 // nodes String -> shapeStor's index.
 HASH_MAP< string, vector< int > > shapeMap;
 POS dim_bin_cGP2D;
+POS dim_bin_3DIC;
 
 ///  ARGUMENTS  ///////////////////////////////////////////
+bool is_3D;
 int numLayer;
 prec aspectRatio;
 string bmFlagCMD;
 string auxCMD;             // mgwoo
 string defName;             // mgwoo
+string defName_top, defName_btm;
 string sdcName;             // mgwoo
 string verilogName;         // mgwoo
 vector< string > libStor;  // mgwoo
 string outputCMD;          // mgwoo
 string experimentCMD;      // mgwoo
 vector< string > lefStor;  // mgwoo
+vector< string > lefStor_top, lefStor_btm;
 string cadbinName;
 string cadboutName;
+string cadbglobalName;
 string verilogTopModule;
 int defMacroCnt;
 int numInitPlaceIter;
@@ -383,6 +408,9 @@ bool trialRunCMD;
 bool autoEvalRC_CMD;
 bool onlyLG_CMD;
 bool isFastMode;
+bool doLegalization;
+bool doDetailPlace;
+bool doCellSwap;
 ///////////////////////////////////////////////////////////
 
 Tcl_Interp* _interp;
@@ -439,7 +467,8 @@ int main(int argc, char *argv[]) {
   double time_cGP2D = 0;
   double time_cGP = 0;
   double time_dp = 0;
-  
+  double time_eco = 0;
+
   time_t rawtime;
   struct tm *timeinfo;
 
@@ -465,25 +494,158 @@ int main(int argc, char *argv[]) {
   PrintProcBegin("Importing Placement Input");
   ParseInput();
 
-//  if(numLayer > 1)
-//    calcTSVweight();
+
+  // 3D IC ECO implementation
+  if ( is_3D ) {
+
+    std::string lib_path = libStor[0];
+    std::string verilog_path = verilogName;
+    std::string sdc_path = sdcName;
+    std::string pl_path = cadbglobalName;
+
+    PrintInfoString("PlacementMode", "3DIC ECO");
+    numLayer = 3;
+
+    PrintProcBegin("3D IC Initialization");
+    Initialize3DIC();
+
+    ot::Timer timer;
+    cellswap::z_btm = 0.f;
+    cellswap::z_top = 100.f;
+    timer.setup_3D_IC("15nm", "45nm");
+    const float APPROX_SCALE = 2.f;
+    timer.set_unit_rc(top_unit_res / APPROX_SCALE, bot_unit_res / APPROX_SCALE,
+      top_unit_cap / APPROX_SCALE, bot_unit_cap / APPROX_SCALE, HBT_res, HBT_cap);
+
+    // Read design
+    timer.read_celllib(lib_path)
+      .read_verilog(verilog_path)
+      .read_sdc(sdc_path)
+      .init_z_position(cellswap::z_btm, cellswap::z_top)
+      .read_global_placement(pl_path);
+
+    cellswap::setupIOConstraint(timer, sdc_path);
+    timer.update_timing();
+
+    PrintProcEnd("3D IC Initialization");
+
+    
+    // Cell Swapping Procedure
+    if ( doCellSwap ) {
+      PrintProcBegin("Cell Swapping");
+      cellswap::printDieStatistics(timer);
+      cellswap::printTimingStatistics(timer);
+      cellswap::swap_gates(timer);
+      PrintProcEnd("Cell Swapping");
+    }
+
+    timer.discretize();
+
+    cellswap::printDieStatistics(timer);
+    cellswap::printTimingStatistics(timer);
+
+    std::unordered_map<std::string, ot::Coord3d> gate_locations = timer.get_gate_locations();
+    std::unordered_map<std::string, ot::Coord2d> HBT_locations = timer.get_HBT_locations();
+    cadb23::UpdateGateLocation(gate_locations, HBT_locations);
+
+
+    // Initialize cells and nets from cell swapping result
+    Initialize3DGates();
+    Initialize3DICNets();
+
+    PrintUnscaledHpwl("Pre-Global Placement");
+
+    setup_before_opt_3DIC();
+
+    SaveCellPlotAsJPEG_3DIC("Pre-Global_Placement", false, string(dir_bnd));
+
+    PrintProcBegin("2D Global Co-Placement");
+    time_start(&time_eco);
+
+    STAGE = c3DIC;
+    gp_opt_3DIC(timer);
+
+    PrintUnscaledHpwl("Post-Global Placement");
+
+
+    time_end(&time_eco);
+    PrintProcEnd("2D Global Co-Placement");
+
+    SaveCellPlotAsJPEG_3DIC("Final_Global_Placement_Result", false, string(dir_bnd));
+
+
+
+    // Update placement location
+    cadb23::UpdateGateLocation();
+
+    // Write in bookshelf format for legalization
+    printf("[INFO] Writing placement results into bookshelf format...\n");
+    std::string bookShelfPath = string(dir_bnd) + "/bookshelf/";
+    std::string mkdir_cmd = "mkdir -p " + bookShelfPath;
+    system(mkdir_cmd.c_str());
+    cadb23::WriteBookShelf(bookShelfPath);
+
+    // Legalization only
+    std::string ntuplace_path = "/mnt/RePlAce/ntuplace/ntuplace-r";
+    if ( doLegalization ) {
+      PrintProcBegin("Legalization");
+      std::string flag = ( doDetailPlace ) ? "-noglobal" : "-noglobal -nodetail";
+      std::string legalize_cmd_top = "cd " + bookShelfPath + " && " + ntuplace_path + " -aux top_die.aux " + flag + " > /dev/null";
+      std::string legalize_cmd_HBT = "cd " + bookShelfPath + " && " + ntuplace_path + " -aux HBT_layer.aux " + flag + " > /dev/null";
+      std::string legalize_cmd_btm = "cd " + bookShelfPath + " && " + ntuplace_path + " -aux btm_die.aux " + flag + " > /dev/null";
+      std::cout << "command: " << legalize_cmd_top << std::endl;
+      std::cout << "command: " << legalize_cmd_HBT << std::endl;
+      std::cout << "command: " << legalize_cmd_btm << std::endl;
+      system(legalize_cmd_top.c_str());
+      system(legalize_cmd_HBT.c_str());
+      system(legalize_cmd_btm.c_str());
+      PrintProcEnd("Legalization");
+    }
+
+    // Update Gate Location from Bookshelf
+    UpdateFromBookshelf(bookShelfPath);
+
+    PrintUnscaledHpwl("Post-Legalization");
+
+
+    // Check timing after legalization
+    ot::BuildSteiner(timer);
+    timer.update_timing();
+
+    OT_LOGI("Timing after legalization: ");
+    OT_LOGI("TNS: ", timer.report_tns_elw(ot::Split::MAX).value());
+    OT_LOGI("WNS: ", timer.report_wns(ot::Split::MAX).value());
+
+    SaveCellPlotAsJPEG_3DIC("Legalization_Result", false, string(dir_bnd));
+
+
+    return 0;
+  }
+
+
+  //  if(numLayer > 1)
+  //    calcTSVweight();
 
   net_update_init();
+  PrintProcBegin("init_tier");
   init_tier();
+  PrintProcEnd("init_tier");
   PrintProcEnd("Importing Placement Input");
   ///////////////////////////////////////////////////////////////////////
 
   time_start(&tot_cpu);
   // Normal cases
-  if(!isSkipPlacement) {
+  if ( !isSkipPlacement ) {
     ///////////////////////////////////////////////////////////////////////
     ///// IP:  INITIAL PLACEMENT //////////////////////////////////////////
-    PrintProcBegin("Initial Placement");
-    time_start(&time_ip);
-    build_data_struct(!isInitSeed);
-    initialPlacement_main();
-    time_end(&time_ip);
-    PrintProcEnd("Initial Placement");
+    if ( !isSkipIP ) {
+      PrintProcBegin("Initial Placement");
+      time_start(&time_ip);
+      build_data_struct(!isInitSeed);
+      initialPlacement_main();
+      time_end(&time_ip);
+      PrintProcEnd("Initial Placement");
+    }
     ///////////////////////////////////////////////////////////////////////
 
     ///////////////////////////////////////////////////////////////////////
@@ -491,7 +653,7 @@ int main(int argc, char *argv[]) {
     setup_before_opt();
     ///////////////////////////////////////////////////////////////////////
 
-    if(trialRunCMD == true) {
+    if ( trialRunCMD == true ) {
       isTrial = true;
       ///////////////////////////////////////////////////////////////////////
       ///// PP:  Pre-Placement (Trial Run to Catch Parameters) //////////////
@@ -773,7 +935,7 @@ void init() {
   //
   //
 
-  string fileCMD = (auxCMD != "") ? auxCMD : defName;
+  string fileCMD = ( auxCMD != "" ) ? auxCMD : ( cadbinName != "" ) ? cadbinName : ( defName != "" ) ? defName : defName_top;
 
   //
   // check '/' from back side
@@ -793,7 +955,7 @@ void init() {
   // if benchName has [.aux] extension
   // remove [.aux]
   int dotPos = benchName.rfind(".");
-  if(benchName.length() - dotPos == 4) {
+  if ( benchName.length() - dotPos == 4 || benchName.length() - dotPos == 3 ) {
     benchName = benchName.substr(0, dotPos);
   }
 

@@ -361,7 +361,7 @@ NET::NET() : min_x(PREC_MAX), min_y(PREC_MAX),
   pin(0), pin2(0), hpwl_x(PREC_MIN), hpwl_y(PREC_MIN),  
   outPinIdx(INT_MAX), pinCNTinObject(INT_MAX), pinCNTinObject2(INT_MAX),
   pinCNTinObject_tier(INT_MAX), idx(INT_MAX), mod_idx(INT_MAX), 
-  timingWeight(1.0f), 
+  timingWeight(1.0f), net_criticality(0.0f),
   customWeight(1.0f),
   wl_rsmt(0.0f) { 
     sum_num1.SetZero();

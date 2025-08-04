@@ -57,6 +57,7 @@ extern FPOS inv_bin_stp;
 extern FPOS half_bin_stp;
 extern FPOS bin_stp_mGP2D;
 extern FPOS bin_stp_cGP2D;
+extern FPOS bin_stp_3DIC;
 extern POS max_bin;
 
 // extern BIN **bin_list;
@@ -102,12 +103,14 @@ int idx_in_bin_rect(POS *p, POS pmin, POS pmax);
 
 void bin_init();
 void bin_init_2D(int);
+void bin_init_3DIC();
 
 void UpdateTerminalArea(TIER *tier, FPOS *pmin, FPOS *pmax);
 
 void bin_update();
 void bin_update7_cGP2D();
 void bin_update7_mGP2D();
+void bin_update7_3DIC();
 
 void bin_delete(void);
 

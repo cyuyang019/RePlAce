@@ -55,8 +55,11 @@ void GCellPinCoordiUpdate();
 // X11 drawing function
 // below function is added by mgwoo.
 void SaveCellPlotAsJPEG(std::string imgName, bool isGCell, std::string imgPosition);
+void SaveCellPlotAsJPEG_3DIC(std::string imgName, bool isGCell, std::string imgPosition);
 void SaveBinPlotAsJPEG(std::string imgName, std::string imgPosition);
+void SaveBinPlotAsJPEG_3DIC(std::string imgName, std::string imgPosition);
 void SaveArrowPlotAsJPEG(std::string imgName, std::string imgPosition);
+void SaveArrowPlotAsJPEG_3DIC(std::string imgName, std::string imgPosition);
 void SavePlot(std::string imgName = "", bool isGCell = false);
 void ShowPlot(std::string circuitName = "");
 

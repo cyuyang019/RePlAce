@@ -72,8 +72,14 @@ void initGlobalVars() {
 
   auxCMD = "";
   defName = "";
+  defName_top = "";
+  defName_btm = "";
+  lefStor.clear();
+  lefStor_top.clear();
+  lefStor_btm.clear();
   cadbinName = "";
   cadboutName = "";
+  cadbglobalName = "";
   sdcName = "";
   verilogName = "";
   outputCMD = "";
@@ -104,6 +110,10 @@ void initGlobalVars() {
   isTiming = false;
   isDummyFill =  true;
 
+  doLegalization = false;
+  doDetailPlace = false;
+  doCellSwap = false;
+
   isInitSeed = false;
   plotColorFile = "";
 
@@ -123,6 +133,9 @@ void initGlobalVars() {
   netWeightBound = 1.8f;
   netWeightScale = 500.0f;
   netWeightApply = true;
+
+  maxNetWeight = PREC_MAX;
+  netWeightDecay = 0.5;
 
   capPerMicron = PREC_MIN;
   resPerMicron = PREC_MIN;
@@ -286,6 +299,26 @@ bool argument(int argc, char *argv[]) {
         return false;
       }
     }
+    else if ( !strcmp(argv[i], "-lef_top") ) {
+      i++;
+      if ( argv[i][0] != '-' ) {
+        lefStor_top.push_back(string(argv[i]));
+      }
+      else {
+        printf("\n**ERROR: Option %s requires *.lef.\n", argv[i - 1]);
+        return false;
+      }
+    }
+    else if ( !strcmp(argv[i], "-lef_btm") ) {
+      i++;
+      if ( argv[i][0] != '-' ) {
+        lefStor_btm.push_back(string(argv[i]));
+      }
+      else {
+        printf("\n**ERROR: Option %s requires *.lef.\n", argv[i - 1]);
+        return false;
+      }
+    }
     else if(!strcmp(argv[i], "-def")) {
       i++;
       if(argv[i][0] != '-') {
@@ -296,23 +329,57 @@ bool argument(int argc, char *argv[]) {
         return false;
       }
     }
-    else if ( !strcmp(argv[i], "-cadb23in") ) {
+    else if ( !strcmp(argv[i], "-3D") ) {
+      is_3D = true;
+      numLayer = 3;
+    }
+    else if ( !strcmp(argv[i], "-def_top") ) {
+      i++;
+      if ( argv[i][0] != '-' ) {
+        defName_top = argv[i];
+      }
+      else {
+        printf("\n**ERROR: Option %s requires *.def.\n", argv[i - 1]);
+        return false;
+      }
+    }
+    else if ( !strcmp(argv[i], "-def_btm") ) {
+      i++;
+      if ( argv[i][0] != '-' ) {
+        defName_btm = argv[i];
+      }
+      else {
+        printf("\n**ERROR: Option %s requires *.def.\n", argv[i - 1]);
+        return false;
+      }
+    }
+    else if ( !strcmp(argv[i], "-cadbin") ) {
       i++;
       if ( argv[i][0] != '-' ) {
         cadbinName = argv[i];
       }
       else {
-        printf("\n**ERROR: Option %s requires *.cadbin.\n", argv[i - 1]);
+        printf("\n**ERROR: Option %s requires *_pl.in.\n", argv[i - 1]);
         return false;
       }
     }
-    else if ( !strcmp(argv[i], "-cadb23out") ) {
+    else if ( !strcmp(argv[i], "-cadbout") ) {
       i++;
       if ( argv[i][0] != '-' ) {
         cadboutName = argv[i];
       }
       else {
-        printf("\n**ERROR: Option %s requires *.cadbout.\n", argv[i - 1]);
+        printf("\n**ERROR: Option %s requires *_pl.out.\n", argv[i - 1]);
+        return false;
+      }
+    }
+    else if ( !strcmp(argv[i], "-cadbglobal") ) {
+      i++;
+      if ( argv[i][0] != '-' ) {
+        cadbglobalName = argv[i];
+      }
+      else {
+        printf("\n**ERROR: Option %s requires *_pl.global.\n", argv[i - 1]);
         return false;
       }
     }
@@ -401,6 +468,10 @@ bool argument(int argc, char *argv[]) {
     }
     else if(!strcmp(argv[i], "-verbose")) {
       isVerbose = true;
+      gVerbose = 1;
+    }
+    else if ( !strcmp(argv[i], "-gVerbose") ) {
+      gVerbose = 2;
     }
     // timing-related param; NetCut
     else if(!strcmp(argv[i], "-nc")) {
@@ -448,6 +519,26 @@ bool argument(int argc, char *argv[]) {
       i++;
       if(argv[i][0] != '-') {
         netWeightScale = atof(argv[i]);
+      }
+      else {
+        return false;
+      }
+    }
+    // timing-related param; Max NetWeight
+    else if ( !strcmp(argv[i], "-maxnw") ) {
+      i++;
+      if ( argv[i][0] != '-' ) {
+        maxNetWeight = atof(argv[i]);
+      }
+      else {
+        return false;
+      }
+    }
+    // timing-related param; NetWeight Decay
+    else if ( !strcmp(argv[i], "-nwDecay") ) {
+      i++;
+      if ( argv[i][0] != '-' ) {
+        netWeightDecay = atof(argv[i]);
       }
       else {
         return false;
@@ -1001,6 +1092,16 @@ bool argument(int argc, char *argv[]) {
     else if(!strcmp(argv[i], "-timing")) {
       isTiming = true;
     }
+    else if ( !strcmp(argv[i], "-legalize") ) {
+      doLegalization = true;
+    }
+    else if ( !strcmp(argv[i], "-detailplace") ) {
+      doLegalization = true;
+      doDetailPlace = true;
+    }
+    else if ( !strcmp(argv[i], "-cellswap") ) {
+      doCellSwap = true;
+    }
     else if(!strcmp(argv[i], "-onlyGP")) {
       isOnlyGlobalPlace = true;
     }
@@ -1078,7 +1179,7 @@ void printUsage() {
 
 bool criticalArgumentError() {
   // mgwoo
-  if(auxCMD == "" && lefStor.size() == 0 && defName == "" && cadbinName == "") {
+  if(!is_3D && auxCMD == "" && lefStor.size() == 0 && defName == "") {
     printf(
         "\n** ERROR: lef/def pair or aux files are needed, use (-lef/-def) or "
         "(-aux) options.\n");
@@ -1087,7 +1188,7 @@ bool criticalArgumentError() {
   }
 
   // mgwoo
-  if(auxCMD == "" && cadbinName == "" && !(lefStor.size() != 0 && defName != "")) {
+  if ( !is_3D && auxCMD == "" && !( lefStor.size() != 0 && defName != "" ) ) {
     printf("\n** ERROR: Both of lef/def files are needed.\n");
     printUsage();
     return true;
@@ -1101,7 +1202,15 @@ bool criticalArgumentError() {
     return true;
   }
 
-  if(isTiming) {
+  if ( is_3D ) {
+    if ( cadbinName == "" || ( cadboutName == "" && cadbglobalName == "" ) ) {
+      printf("\n** ERROR: 3D mode requires cadb files.\n");
+      printUsage();
+      return true;
+    }
+  }
+  
+  if(isTiming && !is_3D) {
     if(libStor.size() == 0) {
       printf(
           "\n** ERROR: Timing mode must contain at least one liberty file.\n");
