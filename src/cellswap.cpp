@@ -2,116 +2,153 @@
 
 namespace cellswap {
 
-  void setupIOConstraint(ot::Timer &timer, std::string sdc_file) {
-    timer.update_timing();
+float gamma;
+float step_length;
+float target_slack;
+float wns_coeff;
+float tns_coeff;
+int iter_count;
 
-    // setup io constraints
-    float maxClkPeriod = 0.0;
-    for ( auto clk : timer.clocks() ) {
-      if ( clk.second.period() > maxClkPeriod ) {
-        maxClkPeriod = clk.second.period();
-      }
-    }
+void setupIOConstraint(ot::Timer &timer, std::string sdc_file) {
+  timer.update_timing();
 
-    for ( auto pi : timer.primary_inputs() ) {
-      timer.set_at(pi.first, ot::MIN, ot::RISE, maxClkPeriod);
-      timer.set_at(pi.first, ot::MAX, ot::RISE, -1e10);
-      timer.set_at(pi.first, ot::MIN, ot::FALL, maxClkPeriod);
-      timer.set_at(pi.first, ot::MAX, ot::FALL, -1e10);
-      timer.set_slew(pi.first, ot::MIN, ot::RISE, 0.01f);
-      timer.set_slew(pi.first, ot::MAX, ot::RISE, 0.01f);
-      timer.set_slew(pi.first, ot::MIN, ot::FALL, 0.01f);
-      timer.set_slew(pi.first, ot::MAX, ot::FALL, 0.01f);
-    }
-
-    for ( auto clk : timer.clocks() ) {
-      timer.set_at(clk.first, ot::MIN, ot::RISE, 0);
-      timer.set_at(clk.first, ot::MAX, ot::RISE, 0);
-      timer.set_at(clk.first, ot::MIN, ot::FALL, 0);
-      timer.set_at(clk.first, ot::MAX, ot::FALL, 0);
-      timer.set_slew(clk.first, ot::MIN, ot::RISE, 0.01f);
-      timer.set_slew(clk.first, ot::MAX, ot::RISE, 0.01f);
-      timer.set_slew(clk.first, ot::MIN, ot::FALL, 0.01f);
-      timer.set_slew(clk.first, ot::MAX, ot::FALL, 0.01f);
-    }
-
-    for ( auto po : timer.primary_outputs() ) {
-      timer.set_rat(po.first, ot::MIN, ot::RISE, 0);
-      timer.set_rat(po.first, ot::MAX, ot::RISE, 1e10);
-      timer.set_rat(po.first, ot::MIN, ot::FALL, 0);
-      timer.set_rat(po.first, ot::MAX, ot::FALL, 1e10);
-      timer.set_load(po.first, ot::MIN, ot::RISE, 0.05f);
-      timer.set_load(po.first, ot::MAX, ot::RISE, 0.05f);
-      timer.set_load(po.first, ot::MIN, ot::FALL, 0.05f);
-      timer.set_load(po.first, ot::MAX, ot::FALL, 0.05f);
-    }
-
-    if ( sdc_file != "" ) {
-      timer.read_sdc(sdc_file);
+  // setup io constraints
+  float maxClkPeriod = 0.0;
+  for ( auto clk : timer.clocks() ) {
+    if ( clk.second.period() > maxClkPeriod ) {
+      maxClkPeriod = clk.second.period();
     }
   }
 
-  void printDieStatistics(ot::Timer &timer) {
-    float top_area = 0, btn_area = 0;
-    int top_count = 0, btn_count = 0;
+  for ( auto pi : timer.primary_inputs() ) {
+    timer.set_at(pi.first, ot::MIN, ot::RISE, maxClkPeriod);
+    timer.set_at(pi.first, ot::MAX, ot::RISE, -1e10);
+    timer.set_at(pi.first, ot::MIN, ot::FALL, maxClkPeriod);
+    timer.set_at(pi.first, ot::MAX, ot::FALL, -1e10);
+    timer.set_slew(pi.first, ot::MIN, ot::RISE, 0.01f);
+    timer.set_slew(pi.first, ot::MAX, ot::RISE, 0.01f);
+    timer.set_slew(pi.first, ot::MIN, ot::FALL, 0.01f);
+    timer.set_slew(pi.first, ot::MAX, ot::FALL, 0.01f);
+  }
 
-    for ( auto &[gname, gate] : timer.gates() ) {
-      if ( *gate.z_pos() > z_top / 2.f ) {
-        if ( *gate.cell_view()[ot::Split::MIN]->is_top ) {
-          top_area += *gate.cell_view()[ot::Split::MIN]->area;
-        }
-        else {
-          auto conjugate_cell = gate.cell_view()[ot::Split::MIN]->conjugate_cell;
-          top_area += ( *conjugate_cell )->area.value();
-        }
-        ++top_count;
+  for ( auto clk : timer.clocks() ) {
+    timer.set_at(clk.first, ot::MIN, ot::RISE, 0);
+    timer.set_at(clk.first, ot::MAX, ot::RISE, 0);
+    timer.set_at(clk.first, ot::MIN, ot::FALL, 0);
+    timer.set_at(clk.first, ot::MAX, ot::FALL, 0);
+    timer.set_slew(clk.first, ot::MIN, ot::RISE, 0.01f);
+    timer.set_slew(clk.first, ot::MAX, ot::RISE, 0.01f);
+    timer.set_slew(clk.first, ot::MIN, ot::FALL, 0.01f);
+    timer.set_slew(clk.first, ot::MAX, ot::FALL, 0.01f);
+  }
+
+  for ( auto po : timer.primary_outputs() ) {
+    timer.set_rat(po.first, ot::MIN, ot::RISE, 0);
+    timer.set_rat(po.first, ot::MAX, ot::RISE, 1e10);
+    timer.set_rat(po.first, ot::MIN, ot::FALL, 0);
+    timer.set_rat(po.first, ot::MAX, ot::FALL, 1e10);
+    timer.set_load(po.first, ot::MIN, ot::RISE, 0.05f);
+    timer.set_load(po.first, ot::MAX, ot::RISE, 0.05f);
+    timer.set_load(po.first, ot::MIN, ot::FALL, 0.05f);
+    timer.set_load(po.first, ot::MAX, ot::FALL, 0.05f);
+  }
+
+  if ( sdc_file != "" ) {
+    timer.read_sdc(sdc_file);
+  }
+}
+
+void printDieStatistics(ot::Timer &timer) {
+  float top_area = 0, btm_area = 0;
+  int top_count = 0, btm_count = 0;
+
+  for ( auto &[gname, gate] : timer.gates() ) {
+    if ( *gate.z_pos() > z_top / 2.f ) {
+      if ( *gate.cell_view()[ot::Split::MIN]->is_top ) {
+        top_area += *gate.cell_view()[ot::Split::MIN]->area;
       }
       else {
-        if ( !( *gate.cell_view()[ot::Split::MIN]->is_top ) ) {
-          btn_area += *gate.cell_view()[ot::Split::MIN]->area;
-        }
-        else {
-          auto conjugate_cell = gate.cell_view()[ot::Split::MIN]->conjugate_cell;
-          btn_area += ( *conjugate_cell )->area.value();
-        }
-        ++btn_count;
+        auto conjugate_cell = gate.cell_view()[ot::Split::MIN]->conjugate_cell;
+        top_area += ( *conjugate_cell )->area.value();
       }
+      ++top_count;
     }
-
-    std::cout << std::fixed;
-    std::cout << "Top area = " << top_area << ", Btn area = " << btn_area << std::endl;
-    std::cout << "Top count = " << top_count << ", Btn count = " << btn_count << std::endl;
-  }
-
-  void printTimingStatistics(ot::Timer &timer) {
-    std::cout << std::fixed;
-    std::cout << "TNS: " << timer.report_tns_elw(ot::Split::MAX).value() << std::endl;
-    std::cout << "WNS: " << timer.report_wns(ot::Split::MAX).value() << std::endl;
-  }
-
-  void swap_gates(ot::Timer &timer) {
-
-    float gamma = 1.f;
-    float step_length = 10.f;
-    float target_slack = 2.f;
-    float wns_coeff = 10.0f;
-    float tns_coeff = 1.0f;
-
-    int iter_count = 50;
-
-    timer.set_gamma(gamma)
-      .set_step_length(step_length)
-      .set_target_slack(target_slack)
-      .set_wns_coeff(wns_coeff)
-      .set_tns_coeff(tns_coeff);
-
-    for ( int it = 0; it < iter_count; ++it ) {
-      timer.update_gradient(true);
-      timer.update_states();
-      // printf("[it %2d]: wns = %7.2f, tns = %7.2f  \n", it + 1, *timer.report_wns(ot::Split::MAX), *timer.report_tns_elw(ot::Split::MAX));
-      OT_LOGI("[it ", it+1, "]: wns = ", *timer.report_wns(ot::Split::MAX), ", tns = ", *timer.report_tns_elw(ot::Split::MAX));
+    else {
+      if ( !( *gate.cell_view()[ot::Split::MIN]->is_top ) ) {
+        btm_area += *gate.cell_view()[ot::Split::MIN]->area;
+      }
+      else {
+        auto conjugate_cell = gate.cell_view()[ot::Split::MIN]->conjugate_cell;
+        btm_area += ( *conjugate_cell )->area.value();
+      }
+      ++btm_count;
     }
   }
+
+  OT_LOGI("Top gate area = ", top_area, ", Btm gate area = ", btm_area);
+  OT_LOGI("Top gate count = ", top_count, ", Btm gate count = ", btm_count);
+  OT_LOGI("HBT count = ", timer.report_HBT_count().value_or(-1));
+}
+
+void printTimingStatistics(ot::Timer &timer) {
+  std::cout << std::fixed;
+  std::cout << "TNS: " << timer.report_tns_elw(ot::Split::MAX).value() << std::endl;
+  std::cout << "WNS: " << timer.report_wns(ot::Split::MAX).value() << std::endl;
+}
+
+void parse_config(std::string config_file) {
+  using json = nlohmann::json;
+
+  if ( config_file == "" ) {
+    // set to default value
+    iter_count = 50;
+    step_length = 10.f;
+    target_slack = 2.f;
+    wns_coeff = 10.0f;
+    tns_coeff = 1.0f;
+    gamma = 1.f;
+    return;
+  }
+
+  std::ifstream file(config_file);
+  json j;
+  file >> j;
+
+  if ( j.contains("cell_swap") ) {
+    iter_count = j["cell_swap"].value("iter_count", 50);
+    step_length = j["cell_swap"].value("step_length", 1.f);
+    target_slack = j["cell_swap"].value("target_slack", 2.f);
+    wns_coeff = j["cell_swap"].value("wns_coeff", 10.f);
+    tns_coeff = j["cell_swap"].value("tns_coeff", 1.f);
+    gamma = j["cell_swap"].value("gamma", 1.f);
+  }
+  else {
+    // set to default value
+    iter_count = 50;
+    step_length = 1.f;
+    target_slack = 2.f;
+    wns_coeff = 10.0f;
+    tns_coeff = 1.0f;
+    gamma = 1.f;
+  }
+
+}
+
+void swap_gates(ot::Timer &timer) {
+
+  timer.set_gamma(gamma)
+    .set_step_length(step_length)
+    .set_target_slack(target_slack)
+    .set_wns_coeff(wns_coeff)
+    .set_tns_coeff(tns_coeff);
+
+  for ( int it = 0; it < iter_count; ++it ) {
+    timer.update_gradient(true);
+    timer.update_states();
+    // printf("[it %2d]: wns = %7.2f, tns = %7.2f  \n", it + 1, *timer.report_wns(ot::Split::MAX), *timer.report_tns_elw(ot::Split::MAX));
+    OT_LOGI("[it ", it+1, "]: wns = ", *timer.report_wns(ot::Split::MAX), ", tns = ", *timer.report_tns_elw(ot::Split::MAX));
+  }
+}
 
 }
 

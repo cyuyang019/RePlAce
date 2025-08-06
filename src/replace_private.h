@@ -837,6 +837,17 @@ extern POS dim_bin_3DIC;
 extern FPOS grow_pmin;
 extern FPOS grow_pmax;
 
+// timing related
+extern float APPROX_SCALE;
+extern float target_slack;
+extern float timing_gamma;
+extern float tns_coeff;
+extern float wns_coeff;
+extern float timing_phi;
+extern float timing_phi_growth;
+extern int timing_start_iter;
+extern int timing_update_interval;
+
 ///////////////////////////////////////////////////////////////////////////
 /*  ARGUMENTS: main.cpp                                                  */
 ///////////////////////////////////////////////////////////////////////////
@@ -848,6 +859,7 @@ extern std::string defName_top, defName_btm;
 extern std::string cadbinName;
 extern std::string cadboutName;
 extern std::string cadbglobalName;
+extern std::string configName;
 extern std::string verilogName;
 extern std::string sdcName;
 extern std::vector< std::string > lefStor;
@@ -936,6 +948,7 @@ void printUsage(void);
 void initArgument(int, char **);
 void initGlobalVars();
 void initGlobalVarsAfterParse();
+void parseConfig();
 
 void calcTSVweight(void);
 bool argument(int, char **);

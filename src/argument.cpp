@@ -44,6 +44,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include "json.hpp"
 
 #include "replace_private.h"
 #include "opt.h"
@@ -80,6 +81,7 @@ void initGlobalVars() {
   cadbinName = "";
   cadboutName = "";
   cadbglobalName = "";
+  configName = "";
   sdcName = "";
   verilogName = "";
   outputCMD = "";
@@ -377,6 +379,16 @@ bool argument(int argc, char *argv[]) {
       i++;
       if ( argv[i][0] != '-' ) {
         cadbglobalName = argv[i];
+      }
+      else {
+        printf("\n**ERROR: Option %s requires *_pl.global.\n", argv[i - 1]);
+        return false;
+      }
+    }
+    else if ( !strcmp(argv[i], "-config") ) {
+      i++;
+      if ( argv[i][0] != '-' ) {
+        configName = argv[i];
       }
       else {
         printf("\n**ERROR: Option %s requires *_pl.global.\n", argv[i - 1]);
@@ -1262,3 +1274,55 @@ bool criticalArgumentError() {
   return false;
 }
 
+
+void parseConfig() {
+  using json = nlohmann::json;
+
+  if ( configName == "" ) {
+    // set to default value
+    APPROX_SCALE = 1.f;
+    target_slack = 2.f;
+    timing_gamma = 1.f;
+    tns_coeff = 1.f;
+    wns_coeff = 10.f;
+    timing_phi = 1.f;
+    timing_phi_growth = 1.f;
+    timing_start_iter = 100;
+    timing_update_interval = 10;
+    return;
+  }
+
+  std::ifstream file(configName);
+  json j;
+  file >> j;
+
+  if ( j.contains("co_placement") ) {
+    target_slack = j["co_placement"].value("target_slack", 2.f);
+    tns_coeff = j["co_placement"].value("tns_coeff", 1.f);
+    wns_coeff = j["co_placement"].value("wns_coeff", 10.f);
+    timing_gamma = j["co_placement"].value("gamma", 1.f);
+    timing_phi = j["co_placement"].value("timing_phi", 1.f);
+    timing_phi_growth = j["co_placement"].value("timing_phi_growth", 1.f);
+    timing_start_iter = j["co_placement"].value("timing_start_iter", 100);
+    timing_update_interval = j["co_placement"].value("timing_update_interval", 10);
+  }
+  else {
+    // set to default value
+    target_slack = 2.f;
+    tns_coeff = 1.f;
+    wns_coeff = 10.f;
+    timing_gamma = 1.f;
+    timing_phi = 1.f;
+    timing_phi_growth = 1.f;
+    timing_start_iter = 100;
+    timing_update_interval = 10;
+  }
+
+  if ( j.contains("cell_swap") ) {
+    APPROX_SCALE = j["cell_swap"].value("approx_scale", 1.f);
+  }
+  else {
+    // set to default value
+    APPROX_SCALE = 1.f;
+  }
+}

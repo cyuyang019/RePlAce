@@ -198,14 +198,13 @@ void myNesterov::nesterov_opt_3DIC(ot::Timer &timer) {
   timer.update_timing();
   
   OT_LOGI("TNS: ", timer.report_tns_elw(ot::Split::MAX).value());
-  float wns = timer.report_wns(ot::Split::MAX).value();
-  OT_LOGI("WNS: ", wns);
+  OT_LOGI("WNS: ", timer.report_wns(ot::Split::MAX).value());
   
   if ( isTiming ) {
-    timer.set_target_slack(0.0f);
-    timer.set_gamma(100.f);
-    timer.set_wns_coeff(1.f);
-    timer.set_tns_coeff(1000.f);
+    timer.set_target_slack(target_slack);
+    timer.set_gamma(timing_gamma);
+    timer.set_wns_coeff(wns_coeff);
+    timer.set_tns_coeff(tns_coeff);
     // auto wire_gradients = timer.get_wire_gradients();
     // print wire_gradients
     // for (const auto& [net_name, wire_gradient] : wire_gradients) {
@@ -268,13 +267,11 @@ void myNesterov::nesterov_opt_3DIC(ot::Timer &timer) {
 
   if ( isPlot ) {
     SaveCellPlotAsJPEG_3DIC("iter0", true, string(dir_bnd) + "/cell");
-
     SaveBinPlotAsJPEG_3DIC("iter0", string(dir_bnd) + "/bin");
-
     SaveArrowPlotAsJPEG_3DIC("iter0", string(dir_bnd) + "/arrow");
   }
 
-  NUM_ITER_FILLER_PLACE = 50;
+  NUM_ITER_FILLER_PLACE = 30;
   timing_phi_cof = 0.f;
   last_iter = DoNesterovOptimization_3DIC(timer);
 
@@ -1122,7 +1119,7 @@ int myNesterov::DoNesterovOptimization_3DIC(ot::Timer &timer) {
     }
 
     // update steiner point location
-    if ( isTiming && !FILLER_PLACE && i >= 100) {
+    if ( isTiming && !FILLER_PLACE ) {
       UpdateSteinerPoint(timing_phi_cof, alpha);
     }
     
@@ -1133,21 +1130,17 @@ int myNesterov::DoNesterovOptimization_3DIC(ot::Timer &timer) {
     // update steiner tree and timing gradient
     if ( isTiming && !FILLER_PLACE) {
       // do something
-      if ( i % timingUpdateIter == 0 && i >= 200 ) {
-        // timing_phi_cof = 10.f * std::pow(1.01, i / timingUpdateIter);
-        // ethmac: 10, sha3: 400*10^1.01
-        timing_phi_cof = 5000.f;
+      if ( i % timing_update_interval == 0 && i >= timing_start_iter ) {
+        float power = ( i - timing_start_iter ) / timing_update_interval;
+        timing_phi_cof = timing_phi * std::pow(timing_phi_growth, power);
         printf("[INFO] iter %d is timing iteration.\n", i);
         PrintProcBegin("Steiner Tree Consturction");
         ot::BuildSteiner(timer);
         PrintProcEnd("Steiner Tree Consturction");
         timer.update_timing();
 
-        
-
         OT_LOGI("TNS: ", timer.report_tns_elw(ot::Split::MAX).value());
-        float wns = timer.report_wns(ot::Split::MAX).value();
-        OT_LOGI("WNS: ", wns);
+        OT_LOGI("WNS: ", timer.report_wns(ot::Split::MAX).value());
 
         auto wire_gradients = timer.get_wire_gradients();
         // print wire_gradients
@@ -1821,9 +1814,9 @@ void get_lc3_filler(struct FPOS *y_st, struct FPOS *y_dst, struct FPOS *z_st,
   yz_dnm = get_dis(y_dst, z_dst, N);
 
   lc = yz_dnm / yz_dis;
-  // std::cout << "yz_dnm/yz_dis: " << yz_dnm << " / " << yz_dis << " = " << lc << endl;
+  // cout << "yz_dnm/yz_dis: " << yz_dnm << " / " << yz_dis << " = " << lc << endl;
   alpha = 1.0 / lc;
-  // if ( alpha < 0.1 ) alpha = 0.1;
+  if ( alpha < 0.1 ) alpha = 0.1;
   // if ( alpha > 20 ) alpha = 20;
   iter->lc = lc;
   iter->alpha00 = alpha;

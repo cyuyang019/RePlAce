@@ -128,6 +128,7 @@ set (REPLACE_HEADER
   src/cadb23IO.h
   src/cellswap.h
   src/timingOT.h
+  src/json.hpp
 )
 
 set (REPLACE_SWIG_FILES

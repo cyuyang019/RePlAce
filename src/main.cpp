@@ -317,6 +317,17 @@ TIER *tier_st;
 POS dim_bin;
 POS dim_bin_mGP2D;
 
+// timing related
+float APPROX_SCALE;
+float target_slack;
+float timing_gamma;
+float tns_coeff;
+float wns_coeff;
+float timing_phi;
+float timing_phi_growth;
+int timing_start_iter;
+int timing_update_interval;
+
 // .shapes
 // SHAPE's storage
 vector< SHAPE > shapeStor;
@@ -344,6 +355,7 @@ vector< string > lefStor_top, lefStor_btm;
 string cadbinName;
 string cadboutName;
 string cadbglobalName;
+string configName;
 string verilogTopModule;
 int defMacroCnt;
 int numInitPlaceIter;
@@ -497,6 +509,7 @@ int main(int argc, char *argv[]) {
 
   // 3D IC ECO implementation
   if ( is_3D ) {
+    parseConfig();
 
     std::string lib_path = libStor[0];
     std::string verilog_path = verilogName;
@@ -513,7 +526,7 @@ int main(int argc, char *argv[]) {
     cellswap::z_btm = 0.f;
     cellswap::z_top = 100.f;
     timer.setup_3D_IC("15nm", "45nm");
-    const float APPROX_SCALE = 2.f;
+
     timer.set_unit_rc(top_unit_res / APPROX_SCALE, bot_unit_res / APPROX_SCALE,
       top_unit_cap / APPROX_SCALE, bot_unit_cap / APPROX_SCALE, HBT_res, HBT_cap);
 
@@ -535,6 +548,7 @@ int main(int argc, char *argv[]) {
       PrintProcBegin("Cell Swapping");
       cellswap::printDieStatistics(timer);
       cellswap::printTimingStatistics(timer);
+      cellswap::parse_config(configName);
       cellswap::swap_gates(timer);
       PrintProcEnd("Cell Swapping");
     }
@@ -960,8 +974,9 @@ void init() {
   }
 
   sprintf(gbch, "%s", benchName.c_str());
-  sprintf(output_dir, "%s/%s/%s", outputCMD.c_str(), bmFlagCMD.c_str(),
-          benchName.c_str());
+  // sprintf(output_dir, "%s/%s/%s", outputCMD.c_str(), bmFlagCMD.c_str(),
+  //         benchName.c_str());
+  sprintf(output_dir, "%s/%s", outputCMD.c_str(), benchName.c_str());
 
   // generate folder if output folders not exist.
   struct stat fileStat;
