@@ -1289,6 +1289,7 @@ void parseConfig() {
     timing_phi_growth = 1.f;
     timing_start_iter = 100;
     timing_update_interval = 10;
+    INIT_LAMBDA_COF_GP = 0.5;
     return;
   }
 
@@ -1305,6 +1306,18 @@ void parseConfig() {
     timing_phi_growth = j["co_placement"].value("timing_phi_growth", 1.f);
     timing_start_iter = j["co_placement"].value("timing_start_iter", 100);
     timing_update_interval = j["co_placement"].value("timing_update_interval", 10);
+    INIT_LAMBDA_COF_GP = j["co_placement"].value("density_phi", 0.5);
+    
+    printf("[INFO] Parsing configuration file...\n");
+    printf("[INFO] Set target_slack = %f\n", target_slack);
+    printf("[INFO] Set tns_coeff = %f\n", tns_coeff);
+    printf("[INFO] Set wns_coeff = %f\n", wns_coeff);
+    printf("[INFO] Set gamma = %f\n", timing_gamma);
+    printf("[INFO] Set timing_phi = %f\n", timing_phi);
+    printf("[INFO] Set timing_phi_growth = %f\n", timing_phi_growth);
+    printf("[INFO] Set timing_start_iter = %d\n", timing_start_iter);
+    printf("[INFO] Set timing_update_interval = %d\n", timing_update_interval);
+    printf("[INFO] Set density_phi = %f\n", INIT_LAMBDA_COF_GP);
   }
   else {
     // set to default value
@@ -1316,6 +1329,7 @@ void parseConfig() {
     timing_phi_growth = 1.f;
     timing_start_iter = 100;
     timing_update_interval = 10;
+    INIT_LAMBDA_COF_GP = 0.5;
   }
 
   if ( j.contains("cell_swap") ) {

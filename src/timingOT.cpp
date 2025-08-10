@@ -301,6 +301,11 @@ void UpdateTimingGrad(std::unordered_map<std::string, std::vector<ot::WireGradDa
 
       for ( auto &[pin1Name, pin2Name, gradient] : wire_grads ) {
 
+        // handling exception (temporarily)
+        if ( std::abs(gradient) > 1e3f ) {
+          continue;
+        }
+
         // std::cout << pin1Name << " <-> " << pin2Name << " = " << gradient << std::endl;
 
         bool is_top = false, is_btm = false;
@@ -367,6 +372,11 @@ void UpdateTimingGrad(std::unordered_map<std::string, std::vector<ot::WireGradDa
 
       for ( auto &[pin1Name, pin2Name, gradient] : wire_grads ) {
 
+        // handling exception (temporarily)
+        if ( std::abs(gradient) > 1e3f ) {
+          continue;
+        }
+
         // std::cout << pin1Name << " <-> " << pin2Name << " = " << gradient << std::endl;
 
         // pin 1
@@ -399,19 +409,33 @@ void UpdateTimingGrad(std::unordered_map<std::string, std::vector<ot::WireGradDa
 
 
   }
+  // for ( int netID = 0; netID < netCNT; ++netID ) {
+  //   NET *curNet = &netInstance[netID];
+  //   printf("Net %s:\n", curNet->Name());
+  //   for ( auto [pin1, grad_pair] : curNet->timing_grad_map ) {
+  //     auto pin2 = grad_pair.first;
+  //     auto grad = grad_pair.second;
+
+  //     if ( pin1->term == 2 || pin2->term == 2 ) {
+  //       printf("%f, %f <-> %f, %f : %f\n", pin1->fp.x, pin1->fp.y, pin2->fp.x, pin2->fp.y, grad);
+  //     }
+  //   }
+  // }
+  // exit(1);
 }
 
 void UpdateSteinerPoint(prec timing_phi_cof, prec alpha) {
   for ( int netID = 0; netID < netCNT; ++netID ) {
     NET *curNet = &netInstance[netID];
 
-    for ( int pinID = 0; pinID < curNet->pinCNTinObject; ++pinID ) {
-      PIN *curPin = curNet->pin[pinID];
+    for ( auto pin_pair: curNet->pin_map ) {
+      PIN *curPin = pin_pair.second;
       if ( curPin->term != 2 ) {
         continue;
       }
 
       auto range = curNet->timing_grad_map.equal_range(curPin);
+      // printf("len = %d\n", std::distance(range.first, range.second));
       for ( auto it = range.first; it != range.second; ++it ) {
         PIN *pin2 = it->second.first;
         prec gradient = it->second.second;
@@ -429,9 +453,13 @@ void UpdateSteinerPoint(prec timing_phi_cof, prec alpha) {
         curPin->fp.x += timing_phi_cof * alpha * x_dir * gradient;
         curPin->fp.y += timing_phi_cof * alpha * y_dir * gradient;
 
+        // printf("%f\n", timing_phi_cof * alpha * gradient);
+
       }
     }
   }
+
+  // exit(0);
 }
 
 void timing_grad(int cell_idx, FPOS *grad) {

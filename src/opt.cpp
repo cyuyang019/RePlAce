@@ -168,8 +168,6 @@ void setup_before_opt_3DIC(void) {
   wlen_init();
   update_cell_density();
   PrintProcEnd("Bin Initialization");
-
-  INIT_LAMBDA_COF_GP = 0.5;
 }
 
 int post_mGP2D_delete(void) {

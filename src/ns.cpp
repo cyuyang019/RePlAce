@@ -273,6 +273,7 @@ void myNesterov::nesterov_opt_3DIC(ot::Timer &timer) {
 
   NUM_ITER_FILLER_PLACE = 30;
   timing_phi_cof = 0.f;
+  // max_iter = 4000;
   last_iter = DoNesterovOptimization_3DIC(timer);
 
   SummarizeNesterovOpt(last_iter);
@@ -1120,7 +1121,7 @@ int myNesterov::DoNesterovOptimization_3DIC(ot::Timer &timer) {
 
     // update steiner point location
     if ( isTiming && !FILLER_PLACE ) {
-      UpdateSteinerPoint(timing_phi_cof, alpha);
+      UpdateSteinerPoint(timing_phi_cof, alpha_pred / 50.f);
     }
     
 
@@ -1152,6 +1153,27 @@ int myNesterov::DoNesterovOptimization_3DIC(ot::Timer &timer) {
         //   printf("\n");
         // }
         // exit(0);
+
+        float max_grad = 0.f;
+        float mean_grad = 0.f;
+        int cnt = 0;
+        for ( const auto &[net_name, wire_gradient] : wire_gradients ) {
+          for ( auto &[pin1, pin2, gradient] : wire_gradient ) {
+            if ( std::abs(gradient) > 1e3f ) {
+              continue;
+            }
+            if ( std::abs(gradient) > max_grad ) {
+              max_grad = std::abs(gradient);
+            }
+            mean_grad += std::abs(gradient);
+            ++cnt;
+          }
+        }
+        mean_grad /= cnt;
+        // std::cout << "cnt = " << cnt << std::endl;
+        std::cout << "timing phi = " << timing_phi_cof << std::endl;
+        std::cout << "max grad = " << max_grad << std::endl;
+        std::cout << "mean grad = " << mean_grad << std::endl;
 
         UpdateTimingGrad(wire_gradients);
       }
@@ -1325,6 +1347,9 @@ void getCostFuncGradient2(struct FPOS *dst, struct FPOS *wdst,
       dst[i].y = wgrad.y + opt_phi_cof * pgrad.y;
 
       if ( isTiming ) {
+        // if ( std::abs(timing_phi_cof * tgrad.x) > 0.001 || std::abs(timing_phi_cof * tgrad.y) > 0.001 ) {
+        //   std::cout << "dst = ( " << dst[i].x << ", " << dst[i].y << " ), tgrad = ( " << timing_phi_cof * tgrad.x << ", " << timing_phi_cof * tgrad.y << " )\n";
+        // }
         dst[i].x -= timing_phi_cof * tgrad.x;
         dst[i].y -= timing_phi_cof * tgrad.y;
       }
