@@ -6,6 +6,7 @@
 *.cmd
 *.cmd*
 */**/*.o
+*.gif
 
 bench_**
 output/*

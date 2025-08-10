@@ -24,6 +24,7 @@ RUN apt-get update && \
     libjpeg-dev \
     python3 \
     python3-pip \
+    imagemagick \
     && apt-get -y autoremove && \
     apt-get clean
 
